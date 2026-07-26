@@ -13,7 +13,11 @@
     "typography",
     "regions",
     "repeatedStructures",
-    "substitutions"
+    "substitutions",
+    "intentLock",
+    "signatureFeatures",
+    "constructionPlan",
+    "validation"
   ],
   "properties": {
     "version": {"type": "string"},
@@ -73,7 +77,57 @@
       }
     },
     "repeatedStructures": {"type": "array"},
-    "substitutions": {"type": "array"}
+    "substitutions": {"type": "array"},
+    "intentLock": {
+      "type": "object",
+      "required": ["invokedSkill", "requestedArtifactClass", "requestedFormat", "editable", "flatImageExplicit"],
+      "properties": {
+        "invokedSkill": {"const": "mimicry"},
+        "requestedArtifactClass": {"enum": ["document", "presentation", "spreadsheet", "editable-canvas", "flat-image"]},
+        "requestedFormat": {"type": "string", "minLength": 1},
+        "editable": {"type": "boolean"},
+        "flatImageExplicit": {"type": "boolean"}
+      }
+    },
+    "signatureFeatures": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["id", "primitive", "definingGeometry", "critical"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "primitive": {"type": "string", "minLength": 1},
+          "definingGeometry": {"type": "string", "minLength": 1},
+          "critical": {"type": "boolean"}
+        }
+      }
+    },
+    "constructionPlan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["signatureFeatureId", "nativePrimitive", "editable", "preservesGeometry"],
+        "properties": {
+          "signatureFeatureId": {"type": "string", "minLength": 1},
+          "nativePrimitive": {"type": "string", "minLength": 1},
+          "editable": {"const": true},
+          "preservesGeometry": {"const": true}
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "required": ["correctArtifactType", "editable", "rendered", "signatureGeometryScore", "overallFidelityScore", "materialFailures"],
+      "properties": {
+        "correctArtifactType": {"const": true},
+        "editable": {"const": true},
+        "rendered": {"const": true},
+        "signatureGeometryScore": {"type": "number", "minimum": 90, "maximum": 100},
+        "overallFidelityScore": {"type": "number", "minimum": 85, "maximum": 100},
+        "materialFailures": {"type": "array", "maxItems": 0}
+      }
+    }
   },
   "additionalProperties": true
 }

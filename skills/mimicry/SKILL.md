@@ -3,53 +3,90 @@ name: mimicry
 description: Use when a user supplies a screenshot, photo, PDF, Word, PowerPoint, Excel, Google Docs, Google Slides, or Google Sheets template and wants a visually matching, editable artifact with replaced contextual content, including LTR, RTL, or mixed-direction layouts.
 ---
 
-# Mimicry
+# Artifact Mimicry
 
-## Core contract
+## Doctrine
 
-Reconstruct the source's visual system as a native, editable office artifact. The source is the design authority: do not reinterpret, beautify, or apply a generic AI aesthetic.
+Artifact Mimicry reproduces a reference as an editable artifact. The reference medium does not determine the output medium. An image is visual evidence, not authorization to generate another image.
 
-The finished artifact must preserve structure, hierarchy, geometry, typography, color, repeated elements, and directionality. Never present a flattened screenshot as an editable deliverable.
+When this skill is invoked, its editable-artifact contract overrides generic media inference. Do not invoke image generation or return a raster primary deliverable unless the user explicitly requests a flat image.
 
-## Execute
+## Mandatory pipeline
 
-1. **Resolve source and target.** Identify the source format, requested output application, editable content boundaries, language direction, and authorized source material. Preserve the source application when no target is named. If the requested connector is unavailable, create the closest native editable file and state the limitation; never claim an external Google or Microsoft artifact was created when it was not.
-2. **Inspect before building.** For native files, inspect page/slide/sheet structure, styles, themes, masters, formulas, charts, and assets. For images or PDFs, measure the canvas and reconstruct regions, spacing, type hierarchy, colors, borders, crops, and repeated structures.
-3. **Create a Mimicry Blueprint.** Normalize the design using `references/blueprint.schema.json`. Record every material region and its direction. Validate a saved blueprint with `python3 scripts/validate_blueprint.py <file>`.
-4. **Build natively.** Use real text, tables, cells, charts, shapes, images, styles, themes, masters, formulas, and placeholders. Clone native styles and masters when present. When content is absent, use clearly editable placeholders that preserve the original density and line count.
-5. **Render and compare.** Render the output at the source dimensions and inspect it at the user's target size. Compare geometry, line breaks, font metrics, colors, borders, crop, layering, density, and reading order. Make one focused correction pass for material mismatches.
-6. **Deliver with a fidelity note.** Name the output format, direction mode, substitutions, unresolved limitations, and what was visually verified. Say “exact” only when the rendered comparison supports it.
+### 1. Intent lock
 
-## Route by artifact
+Before selecting any generation tool, resolve:
 
-| Target | Required reference |
+- invoked skill;
+- requested artifact class and file format;
+- whether a flat image was explicitly requested;
+- editability requirement.
+
+Default to an editable artifact. Preserve an explicit format such as DOCX, PPTX, or XLSX. When multiple editable formats remain equally plausible, ask one concise clarification. Otherwise state a one-sentence execution contract and proceed without requesting redundant confirmation.
+
+Fail closed when output type is unresolved. A preview image may accompany an artifact but cannot replace it.
+
+### 2. Reference decomposition
+
+Create a Mimicry Blueprint using `references/blueprint.schema.json`. Extract:
+
+- page or canvas size, orientation, margins, regions, grid dimensions, and proportions;
+- every visible primitive: rounded rectangle, capsule, circle, line, text box, icon, polygon, badge, divider, table, or image;
+- width, height, corner radius, gaps, padding, alignment, border, overlap, and position;
+- palette, typography, hierarchy, capitalization, shadows, transparency, and contrast;
+- independently editable content such as titles, dates, times, labels, logos, and colors.
+
+Identify at least five signature visual features. A grid-like composition is not automatically a native table. Record semantic structure separately from visual implementation.
+
+### 3. Geometry-aware construction plan
+
+Map every critical signature feature to a native editable primitive that preserves its geometry. Reject a method that preserves content while changing the reference’s visual language.
+
+For example, a timetable made of isolated pill-shaped slots is semantically a table but must be built from separate rounded shapes, optionally aligned by a hidden structural grid. Standard rectangular table cells, softened cell borders, or a flattened screenshot automatically fail.
+
+Load the target reference:
+
+| Target | Reference |
 |---|---|
 | Word or Google Docs | `references/documents.md` |
 | PowerPoint or Google Slides | `references/presentations.md` |
 | Excel or Google Sheets | `references/spreadsheets.md` |
-| Any RTL or mixed-language artifact | `references/directionality.md` |
-| Every final visual comparison | `references/fidelity.md` |
+| RTL or mixed language | `references/directionality.md` |
+| Every deliverable | `references/fidelity.md` |
 
-Load only the references needed for the requested target, plus fidelity.
+### 4. Native artifact generation
 
-## Non-negotiable checks
+Build with real editable text, shapes, tables, cells, charts, images, styles, masters, formulas, and placeholders. Use raster content only for inherently raster elements. Preserve source styles, formulas, notes, links, alt text, and reading order when supported.
 
-- Match the source canvas/page/slide/sheet dimensions before positioning content.
-- Preserve editability and semantic structure; use an image only for an element that is inherently raster.
-- Preserve formulas, number formats, chart data, notes, links, alt text, and reading order when present and supported.
-- Resolve missing fonts by metric similarity and disclose every substitution.
-- Apply direction at document, section, paragraph, run, table, slide, sheet, and cell level where the target supports it.
-- Mixed Arabic/Hebrew and Latin text must keep correct numbers, punctuation, formulas, URLs, and acronyms.
-- Do not invent logos, signatures, seals, or proprietary assets missing from the authorized source.
+### 5. Rendered validation
 
-## Common failure modes
+Render at the source dimensions and inspect at the user’s target size. Compare output type, editability, page structure, primitive type, corner geometry, spacing, typography, palette, completeness, clipping, wrapping, and application-induced changes.
 
-| Failure | Correction |
-|---|---|
-| “Similar” layout from visual intuition | Measure and encode a blueprint first |
-| Correct content in a generic theme | Treat source styling as binding |
-| RTL implemented only with right alignment | Apply bidi direction and logical reading order |
-| Spreadsheet looks right but loses behavior | Preserve formulas, formats, validation, and ranges |
-| Deliverable is a screenshot inside a file | Rebuild with native editable objects |
-| Repeated review loops | One render comparison and one focused correction pass |
+Update the blueprint validation fields and run:
+
+`python3 scripts/validate_blueprint.py <blueprint.json>`
+
+Make one focused correction pass for material failures. Do not deliver an unrendered artifact.
+
+### 6. Delivery gate
+
+Delivery requires:
+
+- correct artifact type: pass;
+- independently editable major elements: pass;
+- rendered inspection: pass;
+- signature geometry: at least 90%;
+- overall visual fidelity: at least 85%;
+- no material failures.
+
+Fail closed if a critical gate is unresolved. State the output format, direction, substitutions, and rendered checks. Claim “matching,” “faithful,” or “exact” only when the corresponding rendered comparison supports it.
+
+## Prohibited behavior
+
+- Routing to image generation merely because the reference is an image.
+- Replacing an editable document request with PNG, JPEG, or a full-page embedded screenshot.
+- Treating approximate color and arrangement as faithful mimicry.
+- Downgrading essential capsules or rounded shapes to rectangular table cells.
+- Silently choosing a construction method incapable of the signature geometry.
+- Delivering before rendered inspection or after a failed critical gate.
 
