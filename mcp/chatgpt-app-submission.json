@@ -1,0 +1,92 @@
+{
+  "$schema": "https://developers.openai.com/plugins/schemas/chatgpt-app-submission.v1.json",
+  "schema_version": 1,
+  "app_info": {
+    "display_name": "Artifact Mimicry",
+    "subtitle": "Rebuild editable templates",
+    "description": "Artifact Mimicry recreates visual references as fresh, native, editable Microsoft Word documents. It preserves separately editable text and shapes, RTL and mixed-direction content, rounded geometry, spacing, color hierarchy, and defining icon primitives, then validates the generated DOCX before returning it.",
+    "category": "PRODUCTIVITY"
+  },
+  "tools": {
+    "execute": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates a new temporary editable DOCX and therefore changes private plugin state.",
+        "open_world_justification": "Creates only an unlisted temporary artifact within the plugin service and does not post, publish, message, or modify third-party systems.",
+        "destructive_justification": "Creates a new artifact without deleting, overwriting, revoking, or irreversibly changing user data."
+      }
+    }
+  },
+  "test_cases": [
+    {
+      "description": "Recreate an RTL timetable with defining capsule geometry.",
+      "user_prompt": "Create an editable Microsoft Word document that faithfully mimics the attached Arabic timetable, preserving the rounded weekday, activity, and time capsules.",
+      "file_attachment_urls": null,
+      "tools_triggered": "execute",
+      "expected_output": "Returns a fresh downloadable DOCX with editable RTL text, independent rounded shapes, preserved spacing, and passing structural validation.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Recreate an LTR poster as editable Word shapes.",
+      "user_prompt": "Recreate the attached English event poster as an editable Word document, keeping the title, badges, dividers, and logo area separately editable.",
+      "file_attachment_urls": null,
+      "tools_triggered": "execute",
+      "expected_output": "Returns a fresh validated DOCX composed of editable native shapes and text rather than a flattened image.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Preserve mixed RTL and LTR content in one editable document.",
+      "user_prompt": "Turn this bilingual Arabic and English schedule into an editable Word template while preserving each language's direction and alignment.",
+      "file_attachment_urls": null,
+      "tools_triggered": "execute",
+      "expected_output": "Returns a validated DOCX with separately editable mixed-direction text and the reference's visual hierarchy.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Preserve a recognizable icon using native geometry.",
+      "user_prompt": "Recreate this fitness schedule as an editable Word document and preserve the dumbbell mark as editable native shapes rather than a circle or symbol glyph.",
+      "file_attachment_urls": null,
+      "tools_triggered": "execute",
+      "expected_output": "Returns a validated DOCX whose named editable primitives reproduce the defining icon silhouette and schedule geometry.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Fail closed when defining geometry cannot be validated.",
+      "user_prompt": "Create an editable Word copy of this layout, preserving every isolated pill shape and all text alignment.",
+      "file_attachment_urls": null,
+      "tools_triggered": "execute",
+      "expected_output": "Returns a fresh DOCX only if all required structural gates pass; otherwise reports that no editable artifact was generated.",
+      "expected_output_url": null
+    }
+  ],
+  "negative_test_cases": [
+    {
+      "description": "Do not invoke the DOCX renderer for a flat image request.",
+      "user_prompt": "Generate a new JPEG illustration inspired by this image.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "Artifact Mimicry should not be invoked because the user explicitly requested a raster image rather than an editable Word artifact.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not invoke the Word renderer for an Excel workbook request.",
+      "user_prompt": "Recreate this as an editable Excel workbook with formulas.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The execute tool should not be invoked because this deployed renderer supports DOCX output only.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not invoke rendering for reference-image analysis only.",
+      "user_prompt": "Describe the colors and typography used in this image without creating a file.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The plugin should answer without invoking execute because no editable artifact was requested.",
+      "expected_output_url": null
+    }
+  ]
+}
