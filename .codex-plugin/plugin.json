@@ -1,6 +1,6 @@
 {
   "name": "mimicry",
-  "version": "0.1.0+codex.20260726094146",
+  "version": "0.1.0+codex.20260726101259",
   "description": "Reconstruct visual templates as native, editable Office and Google Workspace artifacts.",
   "author": {
     "name": "Personal"
@@ -13,6 +13,9 @@
     "developerName": "Personal",
     "category": "Productivity",
     "capabilities": [],
+    "brandColor": "#101820",
+    "composerIcon": "./assets/composer-icon.png",
+    "logo": "./assets/logo.png",
     "defaultPrompt": "Use $mimicry to recreate this template as an editable artifact while preserving its design."
   }
 }
