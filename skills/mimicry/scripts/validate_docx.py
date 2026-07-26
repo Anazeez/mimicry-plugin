@@ -87,6 +87,19 @@ def inspect_docx(path, expectations):
         gates["S-08_rtl_inside_shape"] = not rtl_failures
         if rtl_failures:
             findings.append("S-08 RTL containment failed: " + ", ".join(rtl_failures))
+        shape_names = {
+            node.get("name")
+            for node in tree.findall(
+                ".//{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}docPr"
+            )
+        }
+        missing_shapes = [
+            value for value in expectations.get("required_shape_names", [])
+            if value not in shape_names
+        ]
+        gates["S-09_required_shape_primitives"] = not missing_shapes
+        if missing_shapes:
+            findings.append("S-09 missing shape primitives: " + ", ".join(missing_shapes))
     return {
         "status": "PASS" if all(gates.values()) else "FAIL",
         "gates": gates,

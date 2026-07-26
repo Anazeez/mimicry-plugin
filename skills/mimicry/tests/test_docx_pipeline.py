@@ -15,10 +15,30 @@ import validate_docx  # noqa: E402
 
 
 RTL_HEADERS = ["الجمعة", "الخميس", "الأربعاء", "الثلاثاء", "الاثنين", "الأحد", "السبت", "الوقت"]
+LOGO_PRIMITIVES = [
+    "logo_dumbbell_bar",
+    "logo_dumbbell_left_outer",
+    "logo_dumbbell_left_inner",
+    "logo_dumbbell_right_inner",
+    "logo_dumbbell_right_outer",
+]
 
 
 def task():
-    elements = []
+    elements = [
+        {
+            "id": shape_id,
+            "type": "rect",
+            "x": 0.09 + index * 0.006,
+            "y": 0.12,
+            "w": 0.004,
+            "h": 0.02,
+            "editable": True,
+            "text": "",
+            "fill": "#BDE8DE",
+        }
+        for index, shape_id in enumerate(LOGO_PRIMITIVES)
+    ]
     width = 0.108
     start_x = 0.0625
     for column, text in enumerate(RTL_HEADERS):
@@ -93,6 +113,7 @@ class DocxPipelineTests(unittest.TestCase):
                 "required_text": RTL_HEADERS + ["11:00 AM"],
                 "required_shape_text": RTL_HEADERS + ["11:00 AM"],
                 "rtl_shape_text": RTL_HEADERS,
+                "required_shape_names": LOGO_PRIMITIVES,
             }
             report = validate_docx.inspect_docx(docx_path, expectations)
             self.assertEqual(report["status"], "PASS", report)

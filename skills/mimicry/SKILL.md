@@ -43,6 +43,10 @@ Create a Mimicry Blueprint using `references/blueprint.schema.json`. Extract:
 
 Identify at least five signature visual features. A grid-like composition is not automatically a native table. Record semantic structure separately from visual implementation.
 
+Treat a recognizable icon silhouette as defining geometry. Reconstruct simple
+icons from grouped editable native shapes; never replace a dumbbell, logo mark,
+or other icon with an unrelated circle, Unicode glyph, or approximate symbol.
+
 ### 3. Geometry-aware construction plan
 
 Map every critical signature feature to a native editable primitive that preserves its geometry. Reject a method that preserves content while changing the reference’s visual language.
