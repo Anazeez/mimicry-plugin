@@ -1,0 +1,4 @@
+interface:
+  display_name: "Artifact Mimicry"
+  short_description: "Rebuild templates as editable office artifacts"
+  default_prompt: "Use $mimicry to recreate this template as an editable artifact while preserving its design."

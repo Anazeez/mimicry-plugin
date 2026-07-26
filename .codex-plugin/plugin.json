@@ -1,0 +1,18 @@
+{
+  "name": "mimicry",
+  "version": "0.1.0+codex.20260726094146",
+  "description": "Reconstruct visual templates as native, editable Office and Google Workspace artifacts.",
+  "author": {
+    "name": "Personal"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Artifact Mimicry",
+    "shortDescription": "Rebuild templates as editable office artifacts.",
+    "longDescription": "Recreates screenshots, PDFs, Word, PowerPoint, Excel, and Google Workspace templates as native editable artifacts, including LTR, RTL, and mixed-direction layouts.",
+    "developerName": "Personal",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Use $mimicry to recreate this template as an editable artifact while preserving its design."
+  }
+}

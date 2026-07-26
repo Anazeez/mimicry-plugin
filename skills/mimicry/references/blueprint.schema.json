@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.local/mimicry/blueprint.schema.json",
+  "title": "Mimicry Blueprint",
+  "type": "object",
+  "required": [
+    "version",
+    "source",
+    "target",
+    "canvas",
+    "direction",
+    "palette",
+    "typography",
+    "regions",
+    "repeatedStructures",
+    "substitutions"
+  ],
+  "properties": {
+    "version": {"type": "string"},
+    "source": {
+      "type": "object",
+      "required": ["kind", "format"],
+      "properties": {
+        "kind": {"enum": ["image", "pdf", "file", "url"]},
+        "format": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "target": {
+      "type": "object",
+      "required": ["family", "application"],
+      "properties": {
+        "family": {"enum": ["document", "presentation", "spreadsheet"]},
+        "application": {
+          "enum": ["word", "powerpoint", "excel", "google-docs", "google-slides", "google-sheets"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "canvas": {
+      "type": "object",
+      "required": ["width", "height", "unit"],
+      "properties": {
+        "width": {"type": "number", "exclusiveMinimum": 0},
+        "height": {"type": "number", "exclusiveMinimum": 0},
+        "unit": {"enum": ["px", "pt", "in", "mm", "cm", "cell"]}
+      }
+    },
+    "direction": {"enum": ["ltr", "rtl", "mixed"]},
+    "palette": {"type": "array"},
+    "typography": {"type": "array"},
+    "regions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "role", "bounds", "direction"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "role": {"type": "string", "minLength": 1},
+          "direction": {"enum": ["ltr", "rtl", "mixed"]},
+          "bounds": {
+            "type": "object",
+            "required": ["x", "y", "width", "height"],
+            "properties": {
+              "x": {"type": "number", "minimum": 0},
+              "y": {"type": "number", "minimum": 0},
+              "width": {"type": "number", "exclusiveMinimum": 0},
+              "height": {"type": "number", "exclusiveMinimum": 0}
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "repeatedStructures": {"type": "array"},
+    "substitutions": {"type": "array"}
+  },
+  "additionalProperties": true
+}
