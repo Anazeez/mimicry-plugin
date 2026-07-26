@@ -9,6 +9,8 @@ const DOCX_MIME =
 const UNAVAILABLE =
   "Artifact Mimicry renderer unavailable.\nNo editable artifact was generated.";
 const MAX_ARTIFACT_AGE_MS = 24 * 60 * 60 * 1000;
+const OPENAI_APPS_CHALLENGE_TOKEN =
+  "qFMgLq4heF1lgZGB2Nr2mhWSXVwKFkqiiBr95gI1tqc";
 
 const publicPage = (title, content) =>
   new Response(
@@ -234,6 +236,17 @@ export class ArtifactMimicryMCP extends McpAgent {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (
+      request.method === "GET" &&
+      url.pathname === "/.well-known/openai-apps-challenge"
+    ) {
+      return new Response(OPENAI_APPS_CHALLENGE_TOKEN, {
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+          "cache-control": "no-store"
+        }
+      });
+    }
     if (request.method === "GET" && publicPages[url.pathname]) {
       return publicPages[url.pathname]();
     }
