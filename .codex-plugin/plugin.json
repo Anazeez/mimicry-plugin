@@ -1,6 +1,6 @@
 {
   "name": "mimicry",
-  "version": "0.1.0+codex.20260726101259",
+  "version": "0.1.1",
   "description": "Reconstruct visual templates as native, editable Office and Google Workspace artifacts.",
   "author": {
     "name": "Personal"
