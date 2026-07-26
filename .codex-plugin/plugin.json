@@ -1,7 +1,7 @@
 {
   "name": "mimicry",
-  "version": "0.2.0",
-  "description": "Reconstruct visual templates as native, editable Office and Google Workspace artifacts.",
+  "version": "0.3.0",
+  "description": "Schema-driven editable artifact rendering with structural and visual delivery gates.",
   "author": {
     "name": "Personal"
   },
@@ -9,7 +9,7 @@
   "interface": {
     "displayName": "Artifact Mimicry",
     "shortDescription": "Clone editable templates",
-    "longDescription": "Recreates screenshots, PDFs, Word, PowerPoint, Excel, and Google Workspace templates as native editable artifacts, including LTR, RTL, and mixed-direction layouts.",
+    "longDescription": "Recreates references as native editable artifacts through a schema-driven renderer, structural validation, rendered-evidence gates, and LTR, RTL, or mixed-direction geometry controls.",
     "developerName": "Personal",
     "category": "Productivity",
     "capabilities": [],

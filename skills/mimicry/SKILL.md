@@ -11,6 +11,11 @@ Artifact Mimicry reproduces a reference as an editable artifact. The reference m
 
 When this skill is invoked, its editable-artifact contract overrides generic media inference. Do not invoke image generation or return a raster primary deliverable unless the user explicitly requests a flat image.
 
+Read `references/activation-receipt.yaml` as the persistent invocation contract.
+When its status is active, never deny that Artifact Mimicry is active. Manual
+fallback is forbidden. If the deterministic renderer or validator cannot run,
+return `PLUGIN_RUNTIME_FAULT`; do not improvise a replacement artifact.
+
 ## Mandatory pipeline
 
 ### 1. Intent lock
@@ -58,6 +63,15 @@ Load the target reference:
 
 Build with real editable text, shapes, tables, cells, charts, images, styles, masters, formulas, and placeholders. Use raster content only for inherently raster elements. Preserve source styles, formulas, notes, links, alt text, and reading order when supported.
 
+For DOCX, emit `references/mimicry-task.schema.json`, then run:
+
+`python3 scripts/render_docx.py <task.json> <artifact.docx>`
+
+The renderer is the execution bridge. It uses absolute page coordinates,
+DrawingML as the primary representation, a compatibility fallback, native
+`roundRect` geometry, and text nested inside each shape. Visible schedule pills
+must never use Word tables.
+
 ### 5. Rendered validation
 
 Render at the source dimensions and inspect at the user’s target size. Compare output type, editability, page structure, primitive type, corner geometry, spacing, typography, palette, completeness, clipping, wrapping, and application-induced changes.
@@ -66,7 +80,18 @@ Update the blueprint validation fields and run:
 
 `python3 scripts/validate_blueprint.py <blueprint.json>`
 
-Make one focused correction pass for material failures. Do not deliver an unrendered artifact.
+For DOCX, also run:
+
+`python3 scripts/validate_docx.py <artifact.docx> <expectations.json> --render-report <word-render.json>`
+
+The DOCX validator inspects OOXML for native parts, media, `roundRect` count,
+editable text, text containment, tables, page structure, and RTL properties.
+It fails when fresh Word-compatible rendered evidence is missing. LibreOffice
+alone cannot satisfy the render report.
+
+Make one focused correction pass for a failed gate. A second failed render
+returns to decomposition and renderer architecture. A third failure marks the
+architecture invalid and prohibits another artifact attempt.
 
 ### 6. Delivery gate
 
@@ -81,6 +106,10 @@ Delivery requires:
 
 Fail closed if a critical gate is unresolved. State the output format, direction, substitutions, and rendered checks. Claim “matching,” “faithful,” or “exact” only when the corresponding rendered comparison supports it.
 
+The model must not self-certify. A file link may be emitted only when the
+machine-readable completion report has `status: PASS`, structural gates pass,
+visual gates pass, and Word-compatible rendering passes.
+
 ## Prohibited behavior
 
 - Routing to image generation merely because the reference is an image.
@@ -89,4 +118,3 @@ Fail closed if a critical gate is unresolved. State the output format, direction
 - Downgrading essential capsules or rounded shapes to rectangular table cells.
 - Silently choosing a construction method incapable of the signature geometry.
 - Delivering before rendered inspection or after a failed critical gate.
-

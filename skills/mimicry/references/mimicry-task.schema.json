@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Artifact Mimicry Rendering Task",
+  "type": "object",
+  "required": ["task", "output", "page", "elements", "validation"],
+  "properties": {
+    "task": {"const": "artifact_mimicry"},
+    "output": {
+      "type": "object",
+      "required": ["format", "artifact_kind", "editable"],
+      "properties": {
+        "format": {"const": "docx"},
+        "artifact_kind": {"const": "editable_template"},
+        "editable": {"const": true}
+      }
+    },
+    "page": {
+      "type": "object",
+      "required": ["width_in", "height_in"],
+      "properties": {
+        "width_in": {"type": "number", "exclusiveMinimum": 0},
+        "height_in": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "elements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "x", "y", "w", "h", "editable"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "type": {"enum": ["roundRect", "rect", "ellipse", "parallelogram", "text"]},
+          "x": {"type": "number", "minimum": 0, "maximum": 1},
+          "y": {"type": "number", "minimum": 0, "maximum": 1},
+          "w": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+          "h": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+          "editable": {"const": true},
+          "text": {"type": "string"},
+          "fill": {"type": ["string", "null"]},
+          "text_color": {"type": "string"},
+          "font": {"type": "string"},
+          "font_size_pt": {"type": "number", "exclusiveMinimum": 0},
+          "bold": {"type": "boolean"},
+          "rtl": {"type": "boolean"}
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "required": ["expected_round_rects", "forbid_media", "forbid_tables", "required_text"],
+      "properties": {
+        "expected_round_rects": {"type": "integer", "minimum": 0},
+        "forbid_media": {"const": true},
+        "forbid_tables": {"const": true},
+        "required_text": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}
+

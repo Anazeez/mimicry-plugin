@@ -1,0 +1,10 @@
+plugin_activation:
+  plugin_id: artifact-mimicry
+  status: active
+  invocation_scope: conversation
+  execution_policy:
+    manual_fallback: forbidden
+    deliver_only_after_validation: true
+    deny_active_plugin_existence: forbidden
+    missing_bridge_result: PLUGIN_RUNTIME_FAULT
+
