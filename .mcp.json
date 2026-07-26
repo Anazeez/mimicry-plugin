@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "artifact_mimicry": {
+      "type": "http",
+      "url": "https://artifact-mimicry-mcp.izeesub.workers.dev/mcp"
+    }
+  }
+}

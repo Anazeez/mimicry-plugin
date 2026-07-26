@@ -16,6 +16,15 @@ When its status is active, never deny that Artifact Mimicry is active. Manual
 fallback is forbidden. If the deterministic renderer or validator cannot run,
 return `PLUGIN_RUNTIME_FAULT`; do not improvise a replacement artifact.
 
+When the plugin exposes `artifact_mimicry.execute`, that tool is the mandatory
+execution path for editable DOCX output. The bundled Python files are server
+implementation sources, not permission for the model to emulate execution.
+Decompose the reference into the task schema, call the tool once, and return
+only the fresh artifact produced by that call. Never reuse a prior artifact.
+If the tool is absent or unavailable, return exactly:
+
+`Artifact Mimicry renderer unavailable. No editable artifact was generated.`
+
 ## Mandatory pipeline
 
 ### 1. Intent lock
@@ -67,11 +76,16 @@ Load the target reference:
 
 Build with real editable text, shapes, tables, cells, charts, images, styles, masters, formulas, and placeholders. Use raster content only for inherently raster elements. Preserve source styles, formulas, notes, links, alt text, and reading order when supported.
 
-For DOCX, emit `references/mimicry-task.schema.json`, then run:
+For DOCX, emit `references/mimicry-task.schema.json`, then call
+`artifact_mimicry.execute`. The server executes the equivalent of:
 
 `python3 scripts/render_docx.py <task.json> <artifact.docx>`
 
-The renderer is the execution bridge. It uses absolute page coordinates,
+followed by:
+
+`python3 scripts/validate_docx.py <artifact.docx> <expectations.json>`
+
+The MCP tool is the execution bridge. It uses absolute page coordinates,
 DrawingML as the primary representation, a compatibility fallback, native
 `roundRect` geometry, and text nested inside each shape. Visible schedule pills
 must never use Word tables.

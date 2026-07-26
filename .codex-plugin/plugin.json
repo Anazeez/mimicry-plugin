@@ -1,18 +1,19 @@
 {
   "name": "mimicry",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Schema-driven editable artifact rendering with structural and visual delivery gates.",
   "author": {
     "name": "Personal"
   },
   "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Artifact Mimicry",
     "shortDescription": "Clone editable templates",
     "longDescription": "Recreates references as native editable artifacts through a schema-driven renderer, structural validation, rendered-evidence gates, and LTR, RTL, or mixed-direction geometry controls.",
     "developerName": "Personal",
     "category": "Productivity",
-    "capabilities": [],
+    "capabilities": ["Write"],
     "brandColor": "#101820",
     "composerIcon": "./assets/composer-icon.png",
     "logo": "./assets/logo.png",

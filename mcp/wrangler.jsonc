@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "artifact-mimicry-mcp",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ArtifactMimicryMCP", "ArtifactStore"]
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MCP_OBJECT",
+        "class_name": "ArtifactMimicryMCP"
+      },
+      {
+        "name": "ARTIFACT_STORE",
+        "class_name": "ArtifactStore"
+      }
+    ]
+  },
+  "vars": {
+    "PUBLIC_BASE_URL": "https://artifact-mimicry-mcp.izeesub.workers.dev"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
