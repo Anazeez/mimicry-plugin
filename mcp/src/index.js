@@ -10,6 +10,81 @@ const UNAVAILABLE =
   "Artifact Mimicry renderer unavailable.\nNo editable artifact was generated.";
 const MAX_ARTIFACT_AGE_MS = 24 * 60 * 60 * 1000;
 
+const publicPage = (title, content) =>
+  new Response(
+    `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title} · Artifact Mimicry</title>
+  <style>
+    :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { margin: 0; background: #071c1b; color: #e9f6f1; }
+    main { max-width: 720px; margin: 0 auto; padding: 64px 24px 96px; }
+    a { color: #a9ead4; }
+    h1 { font-size: clamp(2rem, 7vw, 3.5rem); line-height: 1; margin: 0 0 24px; }
+    h2 { margin-top: 36px; }
+    p, li { color: #c6d8d2; line-height: 1.65; }
+    .brand { color: #79cdb1; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .updated { color: #8fa7a0; font-size: .9rem; margin-bottom: 40px; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand">Artifact Mimicry</div>
+    <h1>${title}</h1>
+    <div class="updated">Effective July 26, 2026</div>
+    ${content}
+  </main>
+</body>
+</html>`,
+    {
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "public, max-age=300"
+      }
+    }
+  );
+
+const publicPages = {
+  "/support": () =>
+    publicPage(
+      "Customer support",
+      `<p>For help with Artifact Mimicry, report the problem through the project’s public support tracker.</p>
+       <p><a href="https://github.com/Anazeez/mimicry-plugin/issues">Open Artifact Mimicry support</a></p>
+       <p>Include the requested output type, the error shown, and whether the issue occurred on ChatGPT web, iOS, Android, or Codex. Do not include confidential source documents in a public issue.</p>`
+    ),
+  "/privacy": () =>
+    publicPage(
+      "Privacy policy",
+      `<h2>Data processed</h2>
+       <p>Artifact Mimicry processes task instructions and document-layout data submitted to its tool to generate an editable Microsoft Word document. It does not require an Artifact Mimicry account.</p>
+       <h2>Temporary artifacts</h2>
+       <p>Generated DOCX files are stored at an unlisted download address for up to 24 hours and are then treated as expired. Download links should not be shared with people who should not access the document.</p>
+       <h2>Use and disclosure</h2>
+       <p>Submitted data is used only to provide and secure the requested rendering service. Artifact Mimicry does not sell personal data or use submitted document content for advertising.</p>
+       <h2>Infrastructure</h2>
+       <p>The service runs on Cloudflare infrastructure, which may process limited technical data needed to deliver and protect the service.</p>
+       <h2>Contact</h2>
+       <p>Privacy questions may be submitted through the <a href="https://github.com/Anazeez/mimicry-plugin/issues">support tracker</a>. Do not post confidential information in a public issue.</p>`
+    ),
+  "/terms": () =>
+    publicPage(
+      "Terms of service",
+      `<h2>Service</h2>
+       <p>Artifact Mimicry generates editable DOCX artifacts from user-provided instructions and layout specifications. Generated download links expire after approximately 24 hours.</p>
+       <h2>Your responsibilities</h2>
+       <p>You must have the right to use the material you submit. You may not use the service to violate law, intellectual-property rights, privacy rights, or platform policies.</p>
+       <h2>Outputs</h2>
+       <p>You are responsible for reviewing generated documents before relying on, publishing, or distributing them. The service may refuse generation when required geometry or validation cannot be resolved.</p>
+       <h2>Availability and warranty</h2>
+       <p>The service is provided as available without guarantees of uninterrupted operation or fitness for a particular purpose. Features may change to improve safety, reliability, or compliance.</p>
+       <h2>Contact</h2>
+       <p>Questions may be submitted through the <a href="https://github.com/Anazeez/mimicry-plugin/issues">support tracker</a>.</p>`
+    )
+};
+
 const safeFilename = (value) => {
   const normalized = String(value || "artifact-mimicry.docx")
     .replace(/[^A-Za-z0-9._-]+/g, "-")
@@ -159,6 +234,9 @@ export class ArtifactMimicryMCP extends McpAgent {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (request.method === "GET" && publicPages[url.pathname]) {
+      return publicPages[url.pathname]();
+    }
     if (request.method === "GET" && url.pathname === "/") {
       return Response.json({
         name: "artifact-mimicry",
