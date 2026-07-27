@@ -171,7 +171,7 @@ export class ArtifactMimicryMCP extends McpAgent {
         annotations: {
           readOnlyHint: false,
           destructiveHint: false,
-          openWorldHint: false
+          openWorldHint: true
         }
       },
       async ({ task, expectations = {}, filename }) => {

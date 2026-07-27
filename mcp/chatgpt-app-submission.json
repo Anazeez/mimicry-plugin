@@ -11,12 +11,12 @@
     "execute": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": false
       },
       "justifications": {
         "read_only_justification": "Creates a new temporary editable DOCX and therefore changes private plugin state.",
-        "open_world_justification": "Creates only an unlisted temporary artifact within the plugin service and does not post, publish, message, or modify third-party systems.",
+        "open_world_justification": "Creates an unlisted temporary DOCX at a publicly reachable HTTPS download URL. The artifact is not indexed or posted to third-party systems and expires after 24 hours.",
         "destructive_justification": "Creates a new artifact without deleting, overwriting, revoking, or irreversibly changing user data."
       }
     }
