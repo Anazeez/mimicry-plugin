@@ -33,6 +33,8 @@
     "palette_distance_max": 0.28,
     "ssim_min": 0.45,
     "text_detection_ratio_min": 0.70,
+    "text_ink_ratio_min": 0.30,
+    "text_visual_coverage_min": 1.0,
     "largest_unjustified_raster_ratio_max": 0.10,
     "total_unjustified_raster_ratio_max": 0.15,
     "visible_text_native_ratio_min": 1.0,

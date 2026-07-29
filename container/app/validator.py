@@ -232,6 +232,62 @@ def _ocr_word_count(path):
         )
 
 
+def _text_edge_density(image, bbox):
+    x, y, width, height = bbox
+    inset = 0.04
+    crop = _crop(
+        image,
+        [
+            x + width * inset,
+            y + height * inset,
+            width * (1 - 2 * inset),
+            height * (1 - 2 * inset),
+        ],
+    ).convert("L")
+    if crop.width < 2 or crop.height < 2:
+        return 0.0
+    edges = crop.filter(ImageFilter.FIND_EDGES)
+    # FIND_EDGES brightens the crop boundary. Exclude it so table borders
+    # cannot masquerade as visible text inside a text node.
+    if edges.width > 4 and edges.height > 4:
+        edges = edges.crop((2, 2, edges.width - 2, edges.height - 2))
+    values = list(edges.getdata())
+    return sum(value > 35 for value in values) / len(values) if values else 0.0
+
+
+def _text_visual_metrics(reference, rendered, text_nodes, minimum_ink_ratio):
+    reference_density = {
+        node["id"]: _text_edge_density(reference, node["bbox"])
+        for node in text_nodes
+    }
+    rendered_density = {
+        node["id"]: _text_edge_density(rendered, node["bbox"])
+        for node in text_nodes
+    }
+    complete = all(value >= 0.002 for value in reference_density.values())
+    ratios = {
+        node["id"]: (
+            min(1.0, rendered_density[node["id"]] / reference_density[node["id"]])
+            if reference_density[node["id"]] > 0
+            else 0.0
+        )
+        for node in text_nodes
+    }
+    passing = [
+        node_id for node_id, ratio in ratios.items()
+        if ratio >= minimum_ink_ratio
+    ]
+    return {
+        "measurement_complete": complete,
+        "coverage_ratio": (
+            len(passing) / len(text_nodes) if text_nodes else 1.0
+        ),
+        "reference_density": reference_density,
+        "rendered_density": rendered_density,
+        "ink_ratios": ratios,
+    }
+
+
 def validate_fidelity(reference_path, rendered_path, scene, manifest):
     """Return a fail-closed report based on the saved artifact's actual render."""
 
@@ -291,6 +347,12 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
         for node in text_nodes
     }
     min_contrast = min(contrast_ratios.values()) if contrast_ratios else 21
+    text_visual = _text_visual_metrics(
+        reference,
+        rendered,
+        text_nodes,
+        thresholds["text_ink_ratio_min"],
+    )
 
     reference_ocr_words = _ocr_word_count(reference_path)
     rendered_ocr_words = _ocr_word_count(rendered_path)
@@ -324,6 +386,9 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
         "reference_ocr_words": reference_ocr_words,
         "rendered_ocr_words": rendered_ocr_words,
         "text_detection_ratio": text_detection_ratio,
+        "text_visual_measurement_complete": text_visual["measurement_complete"],
+        "text_visual_coverage_ratio": text_visual["coverage_ratio"],
+        "text_ink_ratios": text_visual["ink_ratios"],
         "page_aspect_error": page_aspect_error,
     }
     audit = manifest.get("package_audit")
@@ -407,8 +472,9 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
         <= thresholds["palette_distance_max"],
         "V_STRUCTURE": metrics["ssim"] >= thresholds["ssim_min"],
         "V_TEXT_COVERAGE": (
-            ocr_available
-            and text_detection_ratio >= thresholds["text_detection_ratio_min"]
+            text_visual["measurement_complete"]
+            and text_visual["coverage_ratio"]
+            >= thresholds["text_visual_coverage_min"]
         ),
     }
 
@@ -588,12 +654,23 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
                 "reference_ocr_words": reference_ocr_words,
                 "rendered_ocr_words": rendered_ocr_words,
                 "text_detection_ratio": text_detection_ratio,
+                "measurement_complete": text_visual["measurement_complete"],
+                "text_visual_coverage_ratio": text_visual["coverage_ratio"],
+                "text_ink_ratios": text_visual["ink_ratios"],
             },
             "required": {
-                "ocr_available": True,
-                "minimum_ratio": thresholds["text_detection_ratio_min"],
+                "measurement_complete": True,
+                "minimum_visual_coverage": thresholds[
+                    "text_visual_coverage_min"
+                ],
+                "minimum_node_ink_ratio": thresholds["text_ink_ratio_min"],
             },
-            "node_ids": [node["id"] for node in text_nodes],
+            "node_ids": [
+                node["id"]
+                for node in text_nodes
+                if text_visual["ink_ratios"].get(node["id"], 0)
+                < thresholds["text_ink_ratio_min"]
+            ],
         },
     }
     findings = []
@@ -621,7 +698,7 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
 
     if all(gates[gate] for gate in config["critical_gates"]):
         status = "PASS"
-    elif not audit_complete or not ocr_available:
+    elif not audit_complete or not text_visual["measurement_complete"]:
         status = "VALIDATION_INCOMPLETE"
     elif not editability_gates["S_EDITABILITY"]:
         status = "EDITABILITY_FAILED"

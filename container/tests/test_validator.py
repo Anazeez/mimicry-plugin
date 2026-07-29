@@ -59,11 +59,13 @@ class FidelityValidatorTests(unittest.TestCase):
         self.good = self.root / "good.png"
         self.broken_border = self.root / "broken-border.png"
         self.broken_contrast = self.root / "broken-contrast.png"
+        self.missing_text = self.root / "missing-text.png"
         self.blank = self.root / "blank.png"
         self._draw(self.reference, borders=True, text="#111111")
         self._draw(self.good, borders=True, text="#111111")
         self._draw(self.broken_border, borders=False, text="#111111")
         self._draw(self.broken_contrast, borders=True, text="#FEFEFE")
+        self._draw(self.missing_text, borders=True, text=None)
         Image.new("RGB", (600, 400), "white").save(self.blank)
         self.manifest = {
             "page_count": 1,
@@ -111,7 +113,8 @@ class FidelityValidatorTests(unittest.TestCase):
                 draw.line((x, top, x, bottom), fill="#222222", width=4)
             for y in (160, 240):
                 draw.line((left, y, right, y), fill="#222222", width=4)
-        draw.rectangle((108, 112, 220, 132), fill=text)
+        if text:
+            draw.rectangle((108, 112, 220, 132), fill=text)
         image.save(path)
 
     def test_known_good_passes_all_critical_gates(self):
@@ -254,20 +257,32 @@ class FidelityValidatorTests(unittest.TestCase):
         self.assertFalse(report["gates"]["G_NATIVE_OBJECT_RATIO"], report)
 
     def test_missing_rendered_text_fails_visual_text_coverage(self):
-        with patch(
-            "container.app.validator._ocr_word_count",
-            side_effect=(40, 10),
-        ):
-            report = validate_fidelity(
-                self.reference, self.good, self.scene, self.manifest
-            )
+        report = validate_fidelity(
+            self.reference, self.missing_text, self.scene, self.manifest
+        )
 
         self.assertEqual(report["status"], "FIDELITY_FAILED", report)
         self.assertFalse(report["gates"]["V_TEXT_COVERAGE"], report)
         finding = next(
             item for item in report["findings"] if item["gate"] == "V_TEXT_COVERAGE"
         )
-        self.assertEqual(finding["measured"]["text_detection_ratio"], 0.25)
+        self.assertEqual(
+            finding["measured"]["text_visual_coverage_ratio"],
+            0.0,
+        )
+
+    def test_ocr_tokenization_cannot_override_complete_node_visual_coverage(self):
+        with patch(
+            "container.app.validator._ocr_word_count",
+            side_effect=(50, 16),
+        ):
+            report = validate_fidelity(
+                self.reference, self.good, self.scene, self.manifest
+            )
+
+        self.assertEqual(report["metrics"]["text_detection_ratio"], 0.32)
+        self.assertEqual(report["metrics"]["text_visual_coverage_ratio"], 1.0)
+        self.assertTrue(report["gates"]["V_TEXT_COVERAGE"], report)
 
 
 if __name__ == "__main__":
