@@ -28,6 +28,29 @@ const constraintTypes = [
   "gap_x",
   "gap_y"
 ];
+const nodeTypeAliases = new Map([
+  ["page", "group"],
+  ["root", "group"],
+  ["frame", "group"],
+  ["container", "group"],
+  ["section", "group"],
+  ["label", "text"],
+  ["textbox", "text"],
+  ["text_box", "text"],
+  ["box", "rectangle"],
+  ["rect", "rectangle"],
+  ["roundedrect", "rounded_rectangle"],
+  ["rounded_rect", "rounded_rectangle"],
+  ["capsule", "rounded_rectangle"],
+  ["pill", "rounded_rectangle"],
+  ["circle", "ellipse"],
+  ["oval", "ellipse"],
+  ["divider", "line"],
+  ["table", "grid"],
+  ["photo", "image"],
+  ["portrait", "image"],
+  ["icon", "image"]
+]);
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const bboxSchema = z
   .tuple([
@@ -303,6 +326,22 @@ const parseVisionResponse = (response) => {
   );
 };
 
+const canonicalizeSceneNodeTypes = (scene) => ({
+  ...scene,
+  nodes: Array.isArray(scene?.nodes)
+    ? scene.nodes.map((node) => {
+        if (!node || typeof node.type !== "string") return node;
+        const normalized = node.type.trim().toLowerCase().replace(/[\s-]+/g, "_");
+        return {
+          ...node,
+          type: nodeTypes.includes(normalized)
+            ? normalized
+            : nodeTypeAliases.get(normalized) ?? normalized
+        };
+      })
+    : scene?.nodes
+});
+
 const stableSceneError = (error) => {
   const issue = error?.issues?.[0];
   if (issue?.path?.includes("type")) return "SCENE_NODE_TYPE";
@@ -362,7 +401,7 @@ export async function extractSceneGraph({ ai, reference, hints = {} }) {
   });
   let parsed;
   try {
-    parsed = sceneGraphSchema.parse(parseVisionResponse(response));
+    parsed = sceneGraphSchema.parse(canonicalizeSceneNodeTypes(parseVisionResponse(response)));
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("SCENE_")) throw error;
     throw new Error(`${stableSceneError(error)}: ${error.message}`);
@@ -409,7 +448,7 @@ export async function correctSceneGraph({
     max_completion_tokens: 8192
   });
   try {
-    return sceneGraphSchema.parse(parseVisionResponse(response));
+    return sceneGraphSchema.parse(canonicalizeSceneNodeTypes(parseVisionResponse(response)));
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("SCENE_")) throw error;
     throw new Error(`${stableSceneError(error)}: ${error.message}`);

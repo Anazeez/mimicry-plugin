@@ -133,6 +133,46 @@ test("deterministically repairs malformed model JSON before strict validation", 
   assert.deepEqual(result, graph);
 });
 
+test("canonicalizes common visual node aliases without accepting unknown types", async () => {
+  const aliasGraph = {
+    ...graph,
+    nodes: [
+      {
+        id: "page",
+        type: "Frame",
+        bbox: [0, 0, 1, 1],
+        z: 0,
+        editable: true
+      },
+      {
+        id: "slot",
+        type: "pill",
+        bbox: [0.1, 0.2, 0.3, 0.1],
+        z: 1,
+        editable: true,
+        style: {
+          fill: "#FFFFFF",
+          stroke: "#111111",
+          stroke_width: 1,
+          corner_radius: 20,
+          opacity: 1
+        }
+      }
+    ]
+  };
+  const ai = { async run() { return { response: JSON.stringify(aliasGraph) }; } };
+  const result = await extractSceneGraph({
+    ai,
+    reference: {
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xdb]),
+      mimeType: "image/jpeg",
+      digest: "abc"
+    }
+  });
+  assert.equal(result.nodes[0].type, "group");
+  assert.equal(result.nodes[1].type, "rounded_rectangle");
+});
+
 test("prefers OpenAI-style choices over an empty legacy response field", async () => {
   const ai = {
     async run() {
