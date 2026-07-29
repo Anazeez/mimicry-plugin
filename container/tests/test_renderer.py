@@ -11,7 +11,7 @@ import zipfile
 from PIL import Image, ImageDraw
 
 from container.app.schemas import validate_scene_graph
-from container.app.renderer import render_scene, inspect_rendered_docx
+from container.app.renderer import _office_endpoint, render_scene, inspect_rendered_docx
 from container.app.server import RenderRequestError, render_request
 
 
@@ -21,6 +21,12 @@ FAILED_DOCX = ROOT / "container/tests/fixtures/failed.docx"
 
 
 class NativeRendererTests(unittest.TestCase):
+    def test_office_uses_an_isolated_local_pipe(self):
+        accept, connection_url = _office_endpoint()
+        self.assertTrue(accept.startswith("pipe,name=mimicry_"))
+        self.assertEqual(connection_url, "uno:" + accept)
+        self.assertNotIn("socket", accept)
+
     def _reference(self, path):
         image = Image.new("RGB", (800, 560), "white")
         draw = ImageDraw.Draw(image)

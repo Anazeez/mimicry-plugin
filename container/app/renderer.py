@@ -11,10 +11,10 @@ import os
 from pathlib import Path
 import re
 import shutil
-import socket
 import subprocess
 import tempfile
 import time
+import uuid
 
 from PIL import Image
 
@@ -67,10 +67,12 @@ def _size(width, height):
     return value
 
 
-def _free_port():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as handle:
-        handle.bind(("127.0.0.1", 0))
-        return handle.getsockname()[1]
+def _office_endpoint():
+    name = "mimicry_%s_%s" % (os.getpid(), uuid.uuid4().hex)
+    return (
+        "pipe,name=%s;urp;StarOffice.ComponentContext" % name,
+        "uno:pipe,name=%s;urp;StarOffice.ComponentContext" % name,
+    )
 
 
 @contextmanager
@@ -83,8 +85,7 @@ def _office(workspace):
 
     profile = Path(workspace) / "lo-profile"
     profile.mkdir(parents=True, exist_ok=True)
-    port = _free_port()
-    accept = "socket,host=127.0.0.1,port=%d;urp;StarOffice.ComponentContext" % port
+    accept, connection_url = _office_endpoint()
     process = subprocess.Popen(
         [
             executable,
@@ -110,15 +111,13 @@ def _office(workspace):
         # Cloudflare starts the container on amd64, while local release checks
         # may emulate amd64. Give LibreOffice enough time to initialize in both
         # environments without weakening the bounded execution contract.
-        for _ in range(300):
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
             if process.poll() is not None:
                 detail = process.stderr.read().decode("utf-8", "replace")
                 raise RenderError("LibreOffice exited before accepting UNO: %s" % detail)
             try:
-                context = resolver.resolve(
-                    "uno:socket,host=127.0.0.1,port=%d;urp;StarOffice.ComponentContext"
-                    % port
-                )
+                context = resolver.resolve(connection_url)
                 desktop = context.ServiceManager.createInstanceWithContext(
                     "com.sun.star.frame.Desktop", context
                 )
