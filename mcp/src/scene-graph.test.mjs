@@ -173,6 +173,24 @@ test("canonicalizes common visual node aliases without accepting unknown types",
   assert.equal(result.nodes[1].type, "rounded_rectangle");
 });
 
+test("derives deterministic z-order and editability for model nodes", async () => {
+  const incompleteGraph = {
+    ...graph,
+    nodes: graph.nodes.map(({ z: _z, editable: _editable, ...node }) => node)
+  };
+  const ai = { async run() { return { response: JSON.stringify(incompleteGraph) }; } };
+  const result = await extractSceneGraph({
+    ai,
+    reference: {
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xdb]),
+      mimeType: "image/jpeg",
+      digest: "abc"
+    }
+  });
+  assert.equal(result.nodes[0].z, 0);
+  assert.equal(result.nodes[0].editable, true);
+});
+
 test("prefers OpenAI-style choices over an empty legacy response field", async () => {
   const ai = {
     async run() {

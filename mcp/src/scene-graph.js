@@ -329,11 +329,13 @@ const parseVisionResponse = (response) => {
 const canonicalizeSceneNodeTypes = (scene) => ({
   ...scene,
   nodes: Array.isArray(scene?.nodes)
-    ? scene.nodes.map((node) => {
+    ? scene.nodes.map((node, index) => {
         if (!node || typeof node.type !== "string") return node;
         const normalized = node.type.trim().toLowerCase().replace(/[\s-]+/g, "_");
         return {
           ...node,
+          z: Number.isInteger(node.z) ? node.z : index,
+          editable: true,
           type: nodeTypes.includes(normalized)
             ? normalized
             : nodeTypeAliases.get(normalized) ?? normalized
