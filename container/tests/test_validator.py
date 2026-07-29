@@ -132,6 +132,11 @@ class FidelityValidatorTests(unittest.TestCase):
             self.reference, self.broken_contrast, self.scene, self.manifest
         )
         self.assertFalse(report["gates"]["V_CONTRAST"], report)
+        finding = next(
+            item for item in report["findings"] if item["gate"] == "V_CONTRAST"
+        )
+        self.assertEqual(finding["measured"]["nodes"][0]["id"], "title")
+        self.assertLess(finding["measured"]["nodes"][0]["contrast_ratio"], 3)
 
     def test_displaced_node_fails_alignment(self):
         manifest = json.loads(json.dumps(self.manifest))
@@ -140,7 +145,16 @@ class FidelityValidatorTests(unittest.TestCase):
             self.reference, self.good, self.scene, manifest
         )
         self.assertFalse(report["gates"]["G_ALIGNMENT"], report)
-        self.assertIn("grid", report["findings"][0]["node_ids"])
+        finding = next(
+            item for item in report["findings"] if item["gate"] == "G_ALIGNMENT"
+        )
+        self.assertIn("grid", finding["node_ids"])
+        node = next(
+            item for item in finding["measured"]["nodes"] if item["id"] == "grid"
+        )
+        self.assertEqual(node["expected_bbox"], self.scene["nodes"][0]["bbox"])
+        self.assertEqual(node["actual_bbox"], manifest["actual_nodes"][0]["bbox"])
+        self.assertAlmostEqual(node["max_error"], 0.12)
 
     def test_blank_render_fails_nonblank(self):
         report = validate_fidelity(

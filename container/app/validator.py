@@ -519,15 +519,29 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
             thresholds["page_aspect_error_max"],
             [],
         ),
-        "G_ALIGNMENT": (
-            max_geometry_error,
-            thresholds["bbox_max_error"],
-            [
+        "G_ALIGNMENT": {
+            "measured": {
+                "value": max_geometry_error,
+                "nodes": [
+                    {
+                        "id": node_id,
+                        "expected_bbox": expected[node_id]["bbox"],
+                        "actual_bbox": (
+                            actual[node_id]["bbox"] if node_id in actual else None
+                        ),
+                        "max_error": error,
+                    }
+                    for node_id, error in geometry_errors.items()
+                    if error > thresholds["bbox_max_error"]
+                ],
+            },
+            "required": {"threshold": thresholds["bbox_max_error"]},
+            "node_ids": [
                 node_id
                 for node_id, error in geometry_errors.items()
                 if error > thresholds["bbox_max_error"]
             ],
-        ),
+        },
         "G_RELATIONSHIPS": (
             max_relationship_error,
             thresholds["relationship_max_error"],
@@ -542,15 +556,22 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
                 if coverage < thresholds["border_coverage_min"]
             ],
         ),
-        "V_CONTRAST": (
-            min_contrast,
-            thresholds["contrast_ratio_min"],
-            [
+        "V_CONTRAST": {
+            "measured": {
+                "value": min_contrast,
+                "nodes": [
+                    {"id": node_id, "contrast_ratio": ratio}
+                    for node_id, ratio in contrast_ratios.items()
+                    if ratio < thresholds["contrast_ratio_min"]
+                ],
+            },
+            "required": {"threshold": thresholds["contrast_ratio_min"]},
+            "node_ids": [
                 node_id
                 for node_id, ratio in contrast_ratios.items()
                 if ratio < thresholds["contrast_ratio_min"]
             ],
-        ),
+        },
         "V_EDGE_SIMILARITY": (
             metrics["edge_f1"],
             thresholds["edge_f1_min"],
