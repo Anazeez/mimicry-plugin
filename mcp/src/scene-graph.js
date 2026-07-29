@@ -408,6 +408,20 @@ const canonicalBBox = (value) => {
   return [x, y, width, height].map((item) => Math.round(item * 1_000_000) / 1_000_000);
 };
 
+const nodeBBox = (node, type) => {
+  if (node.bbox != null) return canonicalBBox(node.bbox);
+  const direct = [node.x, node.y, node.width, node.height];
+  if (direct.every((item) => Number.isFinite(Number(item)))) return canonicalBBox(direct);
+  const nested = [
+    node.position?.x,
+    node.position?.y,
+    node.size?.width,
+    node.size?.height
+  ];
+  if (nested.every((item) => Number.isFinite(Number(item)))) return canonicalBBox(nested);
+  return type === "group" ? [0, 0, 1, 1] : node.bbox;
+};
+
 const canonicalizeSceneNodeTypes = (scene) => ({
   ...scene,
   nodes: Array.isArray(scene?.nodes)
@@ -420,7 +434,7 @@ const canonicalizeSceneNodeTypes = (scene) => ({
           z: Number.isInteger(node.z) ? node.z : index,
           editable: true,
           type,
-          bbox: type === "group" && node.bbox == null ? [0, 0, 1, 1] : canonicalBBox(node.bbox),
+          bbox: nodeBBox(node, type),
           ...(node.text != null ? { text: canonicalText(node.text) } : {}),
           ...(type !== "text" && type !== "group"
             ? { style: canonicalStyle(node, type) }

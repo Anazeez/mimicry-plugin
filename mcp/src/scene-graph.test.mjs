@@ -290,6 +290,24 @@ test("normalizes a geometry-free document wrapper to a full-page group", async (
   assert.deepEqual(result.nodes[0].bbox, [0, 0, 1, 1]);
 });
 
+test("normalizes equivalent x y width height geometry", async () => {
+  const { bbox: _bbox, ...node } = graph.nodes[0];
+  const shorthandGraph = {
+    ...graph,
+    nodes: [{ ...node, x: 10, y: 20, width: 50, height: 10 }]
+  };
+  const ai = { async run() { return { response: JSON.stringify(shorthandGraph) }; } };
+  const result = await extractSceneGraph({
+    ai,
+    reference: {
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xdb]),
+      mimeType: "image/jpeg",
+      digest: "abc"
+    }
+  });
+  assert.deepEqual(result.nodes[0].bbox, [0.1, 0.2, 0.5, 0.1]);
+});
+
 test("prefers OpenAI-style choices over an empty legacy response field", async () => {
   const ai = {
     async run() {
