@@ -19,6 +19,8 @@ const DOCX_MIME =
 const UNAVAILABLE =
   "Artifact Mimicry renderer unavailable.\nNo editable artifact was generated.";
 const MAX_ARTIFACT_AGE_MS = 24 * 60 * 60 * 1000;
+const JOB_POLL_MS = 2_000;
+const JOB_LONG_POLL_MS = 95_000;
 const OPENAI_APPS_CHALLENGE_TOKEN =
   "qFMgLq4heF1lgZGB2Nr2mhWSXVwKFkqiiBr95gI1tqc";
 
@@ -163,9 +165,73 @@ export class ArtifactMimicryMCP extends McpAgent {
     { name: "artifact-mimicry", version: "1.0.0" },
     {
       instructions:
-        "For Artifact Mimicry DOCX requests, call execute with the attached reference file. The tool itself downloads the reference, measures a generic editable scene graph, constructs the DOCX through LibreOffice, reopens and renders the saved file, and independently validates geometry and visual fidelity. Never manually decompose, construct, reuse, or substitute an artifact. If execute is unavailable, return exactly: Artifact Mimicry renderer unavailable. No editable artifact was generated."
+        "For Artifact Mimicry DOCX requests, call execute with the attached reference file, then call await_result with the returned job_id until it returns PASS or a fail-closed error. Do both automatically from the user's single prompt; never ask the user to poll or re-prompt. The service downloads the reference, measures a generic editable scene graph, constructs the DOCX through LibreOffice, reopens and renders the saved file, and independently validates geometry and visual fidelity. Never manually decompose, construct, reuse, or substitute an artifact. If execution fails, report the exact fail-closed result."
     }
   );
+
+  async processArtifactJob({
+    jobId,
+    referenceFile,
+    hints,
+    task,
+    filename
+  }) {
+    try {
+      const resolvedHints = resolveMimicryHints({ hints, task });
+      const renderer = await getRandom(this.env.RENDERER, 1);
+      const { bytes, report } = await executeReferencePipeline({
+        referenceFile,
+        hints: resolvedHints,
+        ai: this.env.AI,
+        renderer
+      });
+      const artifactId = crypto.randomUUID();
+      const expiresAt = Date.now() + MAX_ARTIFACT_AGE_MS;
+      const outputFilename = safeFilename(filename);
+      const storeId = this.env.ARTIFACT_STORE.idFromName("global");
+      const store = this.env.ARTIFACT_STORE.get(storeId);
+      const stored = await store.fetch(
+        new Request(`https://artifact-store/put/${artifactId}`, {
+          method: "POST",
+          headers: {
+            "x-filename": outputFilename,
+            "x-expires-at": String(expiresAt)
+          },
+          body: bytes
+        })
+      );
+      if (!stored.ok) throw new Error("artifact storage failed");
+      await this.ctx.storage.put(`artifact-job:${jobId}`, {
+        status: "PASS",
+        filename: outputFilename,
+        download_url: `${this.env.PUBLIC_BASE_URL}/artifacts/${artifactId}/${encodeURIComponent(outputFilename)}`,
+        expires_at: new Date(expiresAt).toISOString(),
+        validation: report.gates
+      });
+    } catch (error) {
+      await this.ctx.storage.put(`artifact-job:${jobId}`, {
+        status: "FAILED",
+        message:
+          error instanceof ContainerRenderError
+            ? error.message
+            : UNAVAILABLE,
+        diagnostic: safeFailureDiagnostic(error),
+        ...(error instanceof ContainerRenderError && error.report
+          ? { validation_report: error.report }
+          : {})
+      });
+    }
+  }
+
+  async readArtifactJob(jobId, longPoll = false) {
+    const deadline = Date.now() + (longPoll ? JOB_LONG_POLL_MS : 0);
+    do {
+      const record = await this.ctx.storage.get(`artifact-job:${jobId}`);
+      if (!record || record.status !== "PROCESSING") return record;
+      if (Date.now() >= deadline) return record;
+      await new Promise((resolve) => setTimeout(resolve, JOB_POLL_MS));
+    } while (true);
+  }
 
   async init() {
     this.server.registerTool(
@@ -173,7 +239,7 @@ export class ArtifactMimicryMCP extends McpAgent {
       {
         title: "Render editable Word artifact",
         description:
-          "Required execution path for Artifact Mimicry Word requests. Downloads the attached visual reference, extracts its generic scene graph, renders native editable objects through LibreOffice, reopens the saved DOCX, and returns it only after independent geometry and visual fidelity gates pass. Never emulate this tool manually.",
+          "Starts the required durable Artifact Mimicry rendering job. After this returns PROCESSING, immediately call await_result with its job_id. Do not ask the user to poll or re-prompt.",
         inputSchema: {
           reference_file: referenceFileSchema,
           hints: mimicryHintsInputSchema
@@ -195,11 +261,8 @@ export class ArtifactMimicryMCP extends McpAgent {
           filename: z.string().optional().describe("Desired .docx filename.")
         },
         outputSchema: {
-          status: z.literal("PASS"),
-          filename: z.string(),
-          download_url: z.string().url(),
-          expires_at: z.string(),
-          validation: z.record(z.string(), z.boolean())
+          status: z.literal("PROCESSING"),
+          job_id: z.string()
         },
         annotations: {
           readOnlyHint: false,
@@ -216,52 +279,27 @@ export class ArtifactMimicryMCP extends McpAgent {
       }) => {
         try {
           referenceFileSchema.parse(referenceFile);
-          const resolvedHints = resolveMimicryHints({ hints, task });
-          const renderer = await getRandom(this.env.RENDERER, 1);
-          const { bytes, report } = await executeReferencePipeline({
-            referenceFile,
-            hints: resolvedHints,
-            ai: this.env.AI,
-            renderer
+          resolveMimicryHints({ hints, task });
+          const jobId = crypto.randomUUID();
+          await this.ctx.storage.put(`artifact-job:${jobId}`, {
+            status: "PROCESSING",
+            created_at: new Date().toISOString()
           });
-          const artifactId = crypto.randomUUID();
-          const expiresAt = Date.now() + MAX_ARTIFACT_AGE_MS;
-          const outputFilename = safeFilename(filename);
-          const storeId = this.env.ARTIFACT_STORE.idFromName("global");
-          const store = this.env.ARTIFACT_STORE.get(storeId);
-          const stored = await store.fetch(
-            new Request(`https://artifact-store/put/${artifactId}`, {
-              method: "POST",
-              headers: {
-                "x-filename": outputFilename,
-                "x-expires-at": String(expiresAt)
-              },
-              body: bytes
-            })
+          await this.queue(
+            "processArtifactJob",
+            { jobId, referenceFile, hints, task, filename },
+            { retry: { maxAttempts: 1 } }
           );
-          if (!stored.ok) throw new Error("artifact storage failed");
-
-          const downloadUrl = `${this.env.PUBLIC_BASE_URL}/artifacts/${artifactId}/${encodeURIComponent(outputFilename)}`;
           const structuredContent = {
-            status: "PASS",
-            filename: outputFilename,
-            download_url: downloadUrl,
-            expires_at: new Date(expiresAt).toISOString(),
-            validation: report.gates
+            status: "PROCESSING",
+            job_id: jobId
           };
           return {
             structuredContent,
             content: [
               {
                 type: "text",
-                text: `Validated editable DOCX created: ${downloadUrl}`
-              },
-              {
-                type: "resource_link",
-                uri: downloadUrl,
-                name: outputFilename,
-                mimeType: DOCX_MIME,
-                description: "Fresh validated editable Artifact Mimicry DOCX"
+                text: `Rendering started. Call await_result now with job_id ${jobId}.`
               }
             ]
           };
@@ -282,6 +320,80 @@ export class ArtifactMimicryMCP extends McpAgent {
             }
           };
         }
+      }
+    );
+
+    this.server.registerTool(
+      "await_result",
+      {
+        title: "Await validated Word artifact",
+        description:
+          "Waits for an Artifact Mimicry job. Call automatically after execute and call again if it returns PROCESSING. Never ask the user to poll.",
+        inputSchema: {
+          job_id: z.string().uuid()
+        },
+        outputSchema: {
+          status: z.enum(["PROCESSING", "PASS"]),
+          job_id: z.string(),
+          filename: z.string().optional(),
+          download_url: z.string().url().optional(),
+          expires_at: z.string().optional(),
+          validation: z.record(z.string(), z.boolean()).optional()
+        },
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          openWorldHint: true
+        }
+      },
+      async ({ job_id: jobId }) => {
+        const record = await this.readArtifactJob(jobId, true);
+        if (!record) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "Artifact Mimicry job not found." }]
+          };
+        }
+        if (record.status === "FAILED") {
+          return {
+            isError: true,
+            content: [{ type: "text", text: record.message }],
+            _meta: {
+              ...(record.validation_report
+                ? { "artifact-mimicry/validation-report": record.validation_report }
+                : {}),
+              "artifact-mimicry/failure-diagnostic": record.diagnostic
+            }
+          };
+        }
+        if (record.status === "PROCESSING") {
+          return {
+            structuredContent: { status: "PROCESSING", job_id: jobId },
+            content: [
+              {
+                type: "text",
+                text: `Rendering is still in progress. Call await_result again with job_id ${jobId}.`
+              }
+            ]
+          };
+        }
+        const structuredContent = { ...record, job_id: jobId };
+        return {
+          structuredContent,
+          content: [
+            {
+              type: "text",
+              text: `Validated editable DOCX created: ${record.download_url}`
+            },
+            {
+              type: "resource_link",
+              uri: record.download_url,
+              name: record.filename,
+              mimeType: DOCX_MIME,
+              description: "Fresh validated editable Artifact Mimicry DOCX"
+            }
+          ]
+        };
       }
     );
   }
