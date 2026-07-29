@@ -41,6 +41,13 @@
       "max_instances": 2
     }
   ],
+  "workflows": [
+    {
+      "name": "artifact-mimicry-render",
+      "binding": "ARTIFACT_WORKFLOW",
+      "class_name": "ArtifactRenderWorkflow"
+    }
+  ],
   "ai": {
     "binding": "AI"
   },

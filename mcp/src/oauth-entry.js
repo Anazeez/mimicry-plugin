@@ -3,6 +3,7 @@ import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import app, {
   ArtifactMimicryMCP,
   ArtifactMimicryMCPV2,
+  ArtifactRenderWorkflow,
   ArtifactRendererContainer,
   ArtifactStore,
 } from "./index.js";
@@ -24,6 +25,7 @@ const publicApi = createPublicApi({ app });
 export {
   ArtifactMimicryMCP,
   ArtifactMimicryMCPV2,
+  ArtifactRenderWorkflow,
   ArtifactRendererContainer,
   ArtifactStore
 };

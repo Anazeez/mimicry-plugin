@@ -1,4 +1,4 @@
-import { DurableObject } from "cloudflare:workers";
+import { DurableObject, WorkflowEntrypoint } from "cloudflare:workers";
 import { Container, getRandom } from "@cloudflare/containers";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
@@ -18,6 +18,7 @@ import {
   mimicryHintsInputSchema,
   resolveMimicryHints
 } from "./task-schema.js";
+import { launchArtifactWorkflow } from "./workflow-launch.js";
 
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -122,6 +123,73 @@ const safeFailureDiagnostic = (error) => {
   return raw.slice(0, 240);
 };
 
+const artifactStoreForEnv = (env) =>
+  env.ARTIFACT_STORE.get(env.ARTIFACT_STORE.idFromName("global"));
+
+const writeArtifactJobForEnv = async (env, jobId, record) => {
+  const response = await artifactStoreForEnv(env).fetch(
+    new Request(`https://artifact-store/job-put/${jobId}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(record),
+    }),
+  );
+  if (!response.ok) throw new Error("artifact job storage failed");
+};
+
+const runArtifactJob = async (
+  env,
+  { jobId, referenceFile, hints, task, filename },
+) => {
+  try {
+    const resolvedHints = resolveMimicryHints({ hints, task });
+    const renderer = await getRandom(env.RENDERER, 1);
+    const { bytes, report } = await executeReferencePipeline({
+      referenceFile,
+      hints: resolvedHints,
+      ai: env.AI,
+      renderer,
+    });
+    const artifactId = crypto.randomUUID();
+    const expiresAt = Date.now() + MAX_ARTIFACT_AGE_MS;
+    const outputFilename = safeFilename(filename);
+    const stored = await artifactStoreForEnv(env).fetch(
+      new Request(`https://artifact-store/put/${artifactId}`, {
+        method: "POST",
+        headers: {
+          "x-filename": outputFilename,
+          "x-expires-at": String(expiresAt),
+        },
+        body: bytes,
+      }),
+    );
+    if (!stored.ok) throw new Error("artifact storage failed");
+    const result = {
+      status: "PASS",
+      filename: outputFilename,
+      download_url: `${env.PUBLIC_BASE_URL}/artifacts/${artifactId}/${encodeURIComponent(outputFilename)}`,
+      expires_at: new Date(expiresAt).toISOString(),
+      validation: report.gates,
+    };
+    await writeArtifactJobForEnv(env, jobId, result);
+    return result;
+  } catch (error) {
+    const result = {
+      status: "FAILED",
+      message:
+        error instanceof ContainerRenderError
+          ? error.message
+          : UNAVAILABLE,
+      diagnostic: safeFailureDiagnostic(error),
+      ...(error instanceof ContainerRenderError && error.report
+        ? { validation_report: error.report }
+        : {}),
+    };
+    await writeArtifactJobForEnv(env, jobId, result);
+    return result;
+  }
+};
+
 export class ArtifactStore extends DurableObject {
   async fetch(request) {
     const url = new URL(request.url);
@@ -191,6 +259,19 @@ export class ArtifactRendererContainer extends Container {
   pingEndpoint = "localhost/health";
 }
 
+export class ArtifactRenderWorkflow extends WorkflowEntrypoint {
+  async run(event, step) {
+    return step.do(
+      "render and validate editable DOCX",
+      {
+        retries: { limit: 0 },
+        timeout: "15 minutes",
+      },
+      () => runArtifactJob(this.env, event.payload),
+    );
+  }
+}
+
 export class ArtifactMimicryMCP extends McpAgent {
   server = new McpServer(
     { name: "artifact-mimicry", version: "1.0.0" },
@@ -201,71 +282,11 @@ export class ArtifactMimicryMCP extends McpAgent {
   );
 
   artifactStore() {
-    const storeId = this.env.ARTIFACT_STORE.idFromName("global");
-    return this.env.ARTIFACT_STORE.get(storeId);
+    return artifactStoreForEnv(this.env);
   }
 
   async writeArtifactJob(jobId, record) {
-    const response = await this.artifactStore().fetch(
-      new Request(`https://artifact-store/job-put/${jobId}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(record),
-      }),
-    );
-    if (!response.ok) throw new Error("artifact job storage failed");
-  }
-
-  async processArtifactJob({
-    jobId,
-    referenceFile,
-    hints,
-    task,
-    filename
-  }) {
-    try {
-      const resolvedHints = resolveMimicryHints({ hints, task });
-      const renderer = await getRandom(this.env.RENDERER, 1);
-      const { bytes, report } = await executeReferencePipeline({
-        referenceFile,
-        hints: resolvedHints,
-        ai: this.env.AI,
-        renderer
-      });
-      const artifactId = crypto.randomUUID();
-      const expiresAt = Date.now() + MAX_ARTIFACT_AGE_MS;
-      const outputFilename = safeFilename(filename);
-      const stored = await this.artifactStore().fetch(
-        new Request(`https://artifact-store/put/${artifactId}`, {
-          method: "POST",
-          headers: {
-            "x-filename": outputFilename,
-            "x-expires-at": String(expiresAt)
-          },
-          body: bytes
-        })
-      );
-      if (!stored.ok) throw new Error("artifact storage failed");
-      await this.writeArtifactJob(jobId, {
-        status: "PASS",
-        filename: outputFilename,
-        download_url: `${this.env.PUBLIC_BASE_URL}/artifacts/${artifactId}/${encodeURIComponent(outputFilename)}`,
-        expires_at: new Date(expiresAt).toISOString(),
-        validation: report.gates
-      });
-    } catch (error) {
-      await this.writeArtifactJob(jobId, {
-        status: "FAILED",
-        message:
-          error instanceof ContainerRenderError
-            ? error.message
-            : UNAVAILABLE,
-        diagnostic: safeFailureDiagnostic(error),
-        ...(error instanceof ContainerRenderError && error.report
-          ? { validation_report: error.report }
-          : {})
-      });
-    }
+    return writeArtifactJobForEnv(this.env, jobId, record);
   }
 
   async readArtifactJob(jobId, longPoll = false) {
@@ -417,10 +438,10 @@ export class ArtifactMimicryMCP extends McpAgent {
             status: "PROCESSING",
             created_at: new Date().toISOString()
           });
-          await this.queue(
-            "processArtifactJob",
+          await launchArtifactWorkflow(
+            this.env.ARTIFACT_WORKFLOW,
+            jobId,
             { jobId, referenceFile, hints, task, filename },
-            { retry: { maxAttempts: 1 } }
           );
           const structuredContent = {
             status: "PROCESSING",
