@@ -18,6 +18,56 @@ jobs:
           cache-dependency-path: mcp/package-lock.json
       - run: npm ci
       - run: npm test
-      - run: npx wrangler deploy
+      - name: Resolve isolated OAuth KV namespace
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          namespace="artifact-mimicry-oauth"
+          listing="$(npx wrangler kv namespace list)"
+          kv_id="$(node -e '
+            const listing = JSON.parse(process.argv[1]);
+            const match = listing.find(item =>
+              item.title === "artifact-mimicry-oauth"
+              || item.title.endsWith("-artifact-mimicry-oauth")
+            );
+            process.stdout.write(match?.id || "");
+          ' "$listing")"
+          if [ -z "$kv_id" ]; then
+            created="$(npx wrangler kv namespace create "$namespace")"
+            kv_id="$(node -e '
+              const match = process.argv[1].match(/[0-9a-f]{32}/i);
+              if (!match) process.exit(2);
+              process.stdout.write(match[0]);
+            ' "$created")"
+          fi
+          mkdir -p .wrangler
+          OAUTH_KV_ID="$kv_id" node -e '
+            const fs = require("node:fs");
+            const config = JSON.parse(fs.readFileSync("wrangler.jsonc", "utf8"));
+            config.kv_namespaces = [{
+              binding: "OAUTH_KV",
+              id: process.env.OAUTH_KV_ID
+            }];
+            fs.writeFileSync(
+              ".wrangler/deploy.jsonc",
+              JSON.stringify(config, null, 2),
+              { mode: 0o600 }
+            );
+          '
+      - name: Configure owner-only GitHub OAuth secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GITHUB_CLIENT_ID: ${{ secrets.MIMICRY_GITHUB_CLIENT_ID }}
+          GITHUB_CLIENT_SECRET: ${{ secrets.MIMICRY_GITHUB_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$GITHUB_CLIENT_ID"
+          test -n "$GITHUB_CLIENT_SECRET"
+          printf '%s' "$GITHUB_CLIENT_ID" |
+            npx wrangler secret put GITHUB_CLIENT_ID --config .wrangler/deploy.jsonc
+          printf '%s' "$GITHUB_CLIENT_SECRET" |
+            npx wrangler secret put GITHUB_CLIENT_SECRET --config .wrangler/deploy.jsonc
+      - run: npx wrangler deploy --config .wrangler/deploy.jsonc
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

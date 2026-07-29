@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "deploy": "wrangler deploy",
+    "deploy": "echo 'Deploy through the GitHub Actions workflow so the OAuth KV binding is resolved safely.' && exit 1",
     "test": "node --test"
   },
   "dependencies": {
+    "@cloudflare/workers-oauth-provider": "0.8.2",
     "@modelcontextprotocol/sdk": "1.29.0",
     "agents": "0.16.0",
     "ai": "^6.0.0",

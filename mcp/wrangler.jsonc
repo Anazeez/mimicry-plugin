@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "artifact-mimicry-mcp",
-  "main": "src/index.js",
+  "main": "src/oauth-entry.js",
   "compatibility_date": "2026-07-26",
   "compatibility_flags": ["nodejs_compat"],
   "migrations": [
@@ -23,7 +23,8 @@
     ]
   },
   "vars": {
-    "PUBLIC_BASE_URL": "https://artifact-mimicry-mcp.izeesub.workers.dev"
+    "PUBLIC_BASE_URL": "https://artifact-mimicry-mcp.izeesub.workers.dev",
+    "OWNER_GITHUB_IDS": "277895262"
   },
   "observability": {
     "enabled": true
