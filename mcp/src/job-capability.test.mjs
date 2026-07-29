@@ -26,12 +26,19 @@ test("processing job status includes the durable workflow state", () => {
   assert.deepEqual(
     withWorkflowStatus(
       { status: "PROCESSING", created_at: "2026-07-29T00:00:00.000Z" },
-      { status: "running" },
+      {
+        status: "errored",
+        error: { name: "Error", message: "renderer binding unavailable" },
+      },
     ),
     {
       status: "PROCESSING",
       created_at: "2026-07-29T00:00:00.000Z",
-      workflow_status: "running",
+      workflow_status: "errored",
+      workflow_error: {
+        name: "Error",
+        message: "renderer binding unavailable",
+      },
     },
   );
 });
