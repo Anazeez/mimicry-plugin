@@ -272,6 +272,24 @@ test("normalizes percentage boxes and clips page-edge overflow", async () => {
   assert.deepEqual(result.nodes[0].bbox, [0.92, 0.1, 0.08, 0.2]);
 });
 
+test("normalizes a geometry-free document wrapper to a full-page group", async () => {
+  const shorthandGraph = {
+    ...graph,
+    nodes: [{ id: "root", type: "document" }]
+  };
+  const ai = { async run() { return { response: JSON.stringify(shorthandGraph) }; } };
+  const result = await extractSceneGraph({
+    ai,
+    reference: {
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xdb]),
+      mimeType: "image/jpeg",
+      digest: "abc"
+    }
+  });
+  assert.equal(result.nodes[0].type, "group");
+  assert.deepEqual(result.nodes[0].bbox, [0, 0, 1, 1]);
+});
+
 test("prefers OpenAI-style choices over an empty legacy response field", async () => {
   const ai = {
     async run() {

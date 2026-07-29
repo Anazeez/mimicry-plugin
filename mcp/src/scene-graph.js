@@ -30,6 +30,10 @@ const constraintTypes = [
 ];
 const nodeTypeAliases = new Map([
   ["page", "group"],
+  ["document", "group"],
+  ["canvas", "group"],
+  ["artboard", "group"],
+  ["layer", "group"],
   ["root", "group"],
   ["frame", "group"],
   ["container", "group"],
@@ -416,7 +420,7 @@ const canonicalizeSceneNodeTypes = (scene) => ({
           z: Number.isInteger(node.z) ? node.z : index,
           editable: true,
           type,
-          bbox: canonicalBBox(node.bbox),
+          bbox: type === "group" && node.bbox == null ? [0, 0, 1, 1] : canonicalBBox(node.bbox),
           ...(node.text != null ? { text: canonicalText(node.text) } : {}),
           ...(type !== "text" && type !== "group"
             ? { style: canonicalStyle(node, type) }
