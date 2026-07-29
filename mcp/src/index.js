@@ -336,6 +336,11 @@ export class ArtifactMimicryMCP extends McpAgent {
           const compatibilityJobId =
             task && typeof task === "object" && typeof task.job_id === "string"
               ? task.job_id
+              : task &&
+                  typeof task === "object" &&
+                  typeof task.instructions === "string" &&
+                  /^JOB_ID:[0-9a-f-]{36}$/i.test(task.instructions.trim())
+                ? task.instructions.trim().slice("JOB_ID:".length)
               : expectations &&
                   typeof expectations === "object" &&
                   typeof expectations.job_id === "string"
