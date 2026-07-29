@@ -376,10 +376,7 @@ test("fails closed when an unknown node type has no inferable visual primitive",
           nodes: [
             {
               id: "fixture",
-              type: "daily_meeting_grid",
-              bbox: [0.1, 0.1, 0.5, 0.5],
-              z: 0,
-              editable: true
+              type: "daily_meeting_grid"
             }
           ]
         })
@@ -397,4 +394,21 @@ test("fails closed when an unknown node type has no inferable visual primitive",
     }),
     /SCENE_NODE_TYPE/
   );
+});
+
+test("maps an unknown measured visual region to a neutral rectangle", async () => {
+  const shorthandGraph = {
+    ...graph,
+    nodes: [{ id: "region", type: "custom_region", bbox: [0.1, 0.1, 0.5, 0.5] }]
+  };
+  const ai = { async run() { return { response: JSON.stringify(shorthandGraph) }; } };
+  const result = await extractSceneGraph({
+    ai,
+    reference: {
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xdb]),
+      mimeType: "image/jpeg",
+      digest: "abc"
+    }
+  });
+  assert.equal(result.nodes[0].type, "rectangle");
 });

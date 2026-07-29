@@ -371,6 +371,15 @@ const canonicalNodeType = (node, normalized) => {
   if (node.content_ref != null) return "image";
   if (node.style?.corner_radius > 0) return "rounded_rectangle";
   if (node.style) return "rectangle";
+  if (
+    Array.isArray(node.bbox) ||
+    [node.x, node.y, node.width, node.height].every((item) => Number.isFinite(Number(item))) ||
+    [node.position?.x, node.position?.y, node.size?.width, node.size?.height].every((item) =>
+      Number.isFinite(Number(item))
+    )
+  ) {
+    return "rectangle";
+  }
   return normalized;
 };
 
