@@ -285,8 +285,18 @@ def _add_text(document, draw_page, node, page_width, page_height):
         "TextVerticalAdjust",
         uno.Enum("com.sun.star.drawing.TextVerticalAdjust", "CENTER"),
     )
-    _set_if_supported(shape, "TextLeftDistance", 120)
-    _set_if_supported(shape, "TextRightDistance", 120)
+    # The measured OCR box already includes source padding. Additional Writer
+    # text insets can force narrow headings and dates to wrap, which moves a
+    # page-anchored shape during the DOCX round trip.
+    _set_if_supported(shape, "TextLeftDistance", 0)
+    _set_if_supported(shape, "TextRightDistance", 0)
+    _set_if_supported(shape, "TextUpperDistance", 0)
+    _set_if_supported(shape, "TextLowerDistance", 0)
+    _set_if_supported(
+        shape,
+        "TextFitToSize",
+        uno.Enum("com.sun.star.drawing.TextFitToSizeType", "AUTOFIT"),
+    )
     cursor = shape.createTextCursor()
     cursor.gotoEnd(True)
     _set_if_supported(

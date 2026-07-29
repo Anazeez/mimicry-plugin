@@ -182,6 +182,29 @@ class DeterministicExtractorTests(unittest.TestCase):
         self.assertAlmostEqual(sizes[0], sizes[1], places=2)
         self.assertGreaterEqual(sizes[0], 12)
 
+    def test_ocr_font_is_capped_to_the_measured_word_text_box(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / "reference.png"
+            Image.new("RGB", (1280, 688), "white").save(reference)
+            tsv = (
+                "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\t"
+                "left\ttop\twidth\theight\tconf\ttext\n"
+                "5\t1\t1\t1\t1\t1\t957\t65\t91\t29\t95\t2025\n"
+                "5\t1\t1\t1\t1\t2\t1000\t65\t48\t29\t95\tيونيو\n"
+            )
+            with patch("container.app.extractor._ocr_tsv", return_value=tsv):
+                scene = validate_scene_graph(extract_scene_graph(reference))
+
+        text = next(node for node in scene["nodes"] if node["type"] == "text")
+        page_height_points = (
+            scene["page"]["height"] * 72 / 25.4
+        )
+        box_height_points = text["bbox"][3] * page_height_points
+        self.assertLessEqual(
+            text["text"]["font_size_pt"],
+            box_height_points * 0.92 + 0.01,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -130,6 +130,48 @@ class NativeRendererTests(unittest.TestCase):
             self.assertIn("اجتماع يومي", xml)
             self.assertNotIn("reference-full-page", xml)
 
+    def test_fitted_rtl_text_round_trips_without_line_height_displacement(self):
+        scene = validate_scene_graph(
+            {
+                "version": "scene-graph.v1",
+                "page": {
+                    "width": 297.0,
+                    "height": 159.6375,
+                    "orientation": "landscape",
+                },
+                "nodes": [
+                    {
+                        "id": "top-date",
+                        "type": "text",
+                        "bbox": [0.7478, 0.0952, 0.0709, 0.0523],
+                        "z": 30,
+                        "editable": True,
+                        "text": {
+                            "value": "2025 يونيو 1",
+                            "direction": "rtl",
+                            "font_family": "Arial",
+                            "font_size_pt": 21.75,
+                            "weight": 400,
+                            "align": "right",
+                            "color": "#111111",
+                        },
+                    }
+                ],
+                "constraints": [],
+            }
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            reference = workspace / "reference.jpg"
+            self._reference(reference)
+            artifact = render_scene(scene, reference, workspace)
+
+        actual = artifact.manifest["actual_nodes"][0]["bbox"]
+        for observed_value, expected_value in zip(
+            actual, scene["nodes"][0]["bbox"]
+        ):
+            self.assertAlmostEqual(observed_value, expected_value, delta=0.025)
+
     def test_supplied_failed_docx_is_rejected_as_blank_after_reopen(self):
         if not shutil.which("libreoffice"):
             self.skipTest("LibreOffice is required")

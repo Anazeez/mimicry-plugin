@@ -319,6 +319,23 @@ def _ocr_nodes(
             box_width = min(width - left, measured_width + 2 * pad_x)
             box_height = min(height - top, measured_height + 2 * pad_y)
             align = "right" if rtl else "left"
+        measured_font_size = _measured_font_size(
+            measured_height,
+            height,
+            page_height_mm,
+            rtl,
+        )
+        # A font larger than its measured Word text box is reflowed during the
+        # DOCX round trip.  Writer may then move a page-anchored shape by one or
+        # more line heights.  Cap the portable font to the physical box while
+        # preserving the reference-measured box and visual center.
+        box_height_points = (
+            box_height / height * page_height_mm * POINTS_PER_MM
+        )
+        fitted_font_size = min(
+            measured_font_size,
+            max(6, box_height_points * 0.92),
+        )
         nodes.append(
             {
                 "id": "text-%03d" % (len(nodes) + 1),
@@ -338,12 +355,7 @@ def _ocr_nodes(
                     # predictably to metrically compatible sans fonts in
                     # LibreOffice and Google Docs.
                     "font_family": "Arial",
-                    "font_size_pt": _measured_font_size(
-                        measured_height,
-                        height,
-                        page_height_mm,
-                        rtl,
-                    ),
+                    "font_size_pt": fitted_font_size,
                     "weight": 600 if measured_height >= height * 0.035 else 400,
                     "align": align,
                     "color": color,

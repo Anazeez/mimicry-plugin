@@ -48,6 +48,10 @@
     {
       "tag": "v11",
       "new_sqlite_classes": ["ArtifactRendererContainerV8"]
+    },
+    {
+      "tag": "v12",
+      "new_sqlite_classes": ["ArtifactRendererContainerV9"]
     }
   ],
   "durable_objects": {
@@ -62,13 +66,13 @@
       },
       {
         "name": "RENDERER",
-        "class_name": "ArtifactRendererContainerV8"
+        "class_name": "ArtifactRendererContainerV9"
       }
     ]
   },
   "containers": [
     {
-      "class_name": "ArtifactRendererContainerV8",
+      "class_name": "ArtifactRendererContainerV9",
       "image": "../container/Dockerfile",
       "instance_type": "standard-1",
       "max_instances": 1
