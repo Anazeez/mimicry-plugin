@@ -19,7 +19,10 @@ import {
   mimicryHintsInputSchema,
   resolveMimicryHints
 } from "./task-schema.js";
-import { launchArtifactWorkflow } from "./workflow-launch.js";
+import {
+  ARTIFACT_WORKFLOW_STEP_CONFIG,
+  launchArtifactWorkflow,
+} from "./workflow-launch.js";
 
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -265,10 +268,7 @@ export class ArtifactRenderWorkflow extends WorkflowEntrypoint {
     try {
       return await step.do(
         "render and validate editable DOCX",
-        {
-          retries: { limit: 0 },
-          timeout: "15 minutes",
-        },
+        ARTIFACT_WORKFLOW_STEP_CONFIG,
         () => runArtifactJob(this.env, event.payload),
       );
     } catch (error) {
