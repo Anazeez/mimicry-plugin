@@ -77,6 +77,26 @@ test("user hints cannot overwrite measured geometry", async () => {
   assert.equal(result.nodes[0].text.value, "New title");
 });
 
+test("accepts a valid scene object wrapped in model prose and a JSON fence", async () => {
+  const ai = {
+    async run(_model, input) {
+      if (input.prompt === "agree") return { response: "accepted" };
+      return {
+        response: `Here is the measured scene:\n\`\`\`json\n${JSON.stringify(graph)}\n\`\`\``
+      };
+    }
+  };
+  const result = await extractSceneGraph({
+    ai,
+    reference: {
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xdb]),
+      mimeType: "image/jpeg",
+      digest: "abc"
+    }
+  });
+  assert.deepEqual(result, graph);
+});
+
 test("fails closed when vision returns a malformed or fixture-specific graph", async () => {
   const ai = {
     async run() {

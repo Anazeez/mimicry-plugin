@@ -223,12 +223,23 @@ const parseVisionResponse = (response) => {
   if (typeof raw !== "string") {
     throw new Error("SCENE_RESPONSE: Workers AI returned no structured scene graph");
   }
-  const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    throw new Error("SCENE_RESPONSE: Workers AI returned invalid JSON");
+  const candidates = [
+    raw.trim(),
+    raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "")
+  ];
+  const firstBrace = raw.indexOf("{");
+  const lastBrace = raw.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    candidates.push(raw.slice(firstBrace, lastBrace + 1));
   }
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Try the next deterministic extraction form.
+    }
+  }
+  throw new Error("SCENE_RESPONSE: Workers AI returned invalid JSON");
 };
 
 const stableSceneError = (error) => {
