@@ -346,6 +346,33 @@ const parseVisionResponse = (response) => {
 
 const hasArabic = (value) => /[\u0600-\u06ff]/u.test(value);
 
+const finiteNumber = (value, fallback, { min = -Infinity, max = Infinity } = {}) => {
+  const number =
+    value == null || (typeof value === "string" && !value.trim())
+      ? Number.NaN
+      : Number(value);
+  return Math.min(max, Math.max(min, Number.isFinite(number) ? number : fallback));
+};
+
+const canonicalWeight = (value) => {
+  const named = {
+    thin: 100,
+    light: 300,
+    normal: 400,
+    regular: 400,
+    medium: 500,
+    semibold: 600,
+    "semi-bold": 600,
+    bold: 700,
+    extrabold: 800,
+    black: 900
+  };
+  const normalized =
+    typeof value === "string" ? named[value.trim().toLowerCase()] ?? value : value;
+  const weight = finiteNumber(normalized, 400, { min: 100, max: 900 });
+  return Math.round(weight / 100) * 100;
+};
+
 const canonicalText = (node, type) => {
   if (type !== "text") return node.text;
   const raw = node.text ?? node.value ?? node.content ?? node.label ?? "";
@@ -358,17 +385,28 @@ const canonicalText = (node, type) => {
     : hasArabic(value)
       ? "rtl"
       : "ltr";
+  const fallbackAlign =
+    direction === "rtl" ? "right" : direction === "ltr" ? "left" : "center";
+  const requestedAlign = source.align || node.align;
   return {
     value,
     direction,
     font_family:
-      source.font_family || node.font_family || (direction === "rtl" ? "Noto Sans Arabic" : "Arial"),
-    font_size_pt: Number(source.font_size_pt ?? node.font_size_pt ?? node.font_size ?? 12),
-    weight: Number(source.weight ?? node.weight ?? 400),
-    align:
-      source.align ||
-      node.align ||
-      (direction === "rtl" ? "right" : direction === "ltr" ? "left" : "center"),
+      typeof (source.font_family || node.font_family) === "string" &&
+      (source.font_family || node.font_family).trim()
+        ? (source.font_family || node.font_family).trim()
+        : direction === "rtl"
+          ? "Noto Sans Arabic"
+          : "Arial",
+    font_size_pt: finiteNumber(
+      source.font_size_pt ?? node.font_size_pt ?? node.font_size,
+      12,
+      { min: 1, max: 200 }
+    ),
+    weight: canonicalWeight(source.weight ?? node.weight),
+    align: ["left", "center", "right", "justify"].includes(requestedAlign)
+      ? requestedAlign
+      : fallbackAlign,
     color: canonicalColor(source.color ?? node.color) || "#111111"
   };
 };
@@ -413,9 +451,13 @@ const canonicalStyle = (node, type) => {
   return {
     fill: canonicalColor(style.fill ?? node.fill),
     stroke: canonicalColor(style.stroke ?? node.stroke),
-    stroke_width: Number(style.stroke_width ?? node.stroke_width ?? 0),
-    corner_radius: Number(style.corner_radius ?? node.corner_radius ?? 0),
-    opacity: Number(style.opacity ?? node.opacity ?? 1)
+    stroke_width: finiteNumber(style.stroke_width ?? node.stroke_width, 0, {
+      min: 0
+    }),
+    corner_radius: finiteNumber(style.corner_radius ?? node.corner_radius, 0, {
+      min: 0
+    }),
+    opacity: finiteNumber(style.opacity ?? node.opacity, 1, { min: 0, max: 1 })
   };
 };
 

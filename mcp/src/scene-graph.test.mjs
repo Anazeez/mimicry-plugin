@@ -254,6 +254,35 @@ test("normalizes top-level content into editable text metadata", async () => {
   assert.equal(result.nodes[0].text.font_size_pt, 24);
 });
 
+test("normalizes named and invalid typography values without NaN", async () => {
+  const shorthandGraph = {
+    ...graph,
+    nodes: [
+      {
+        id: "heading",
+        type: "text",
+        bbox: [0.1, 0.1, 0.5, 0.1],
+        content: "اجتماع يومي",
+        weight: "bold",
+        font_size: "large",
+        align: "end"
+      }
+    ]
+  };
+  const ai = { async run() { return { response: JSON.stringify(shorthandGraph) }; } };
+  const result = await extractSceneGraph({
+    ai,
+    reference: {
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xdb]),
+      mimeType: "image/jpeg",
+      digest: "abc"
+    }
+  });
+  assert.equal(result.nodes[0].text.weight, 700);
+  assert.equal(result.nodes[0].text.font_size_pt, 12);
+  assert.equal(result.nodes[0].text.align, "right");
+});
+
 test("normalizes top-level paint and neutral image metadata", async () => {
   const shorthandGraph = {
     ...graph,
