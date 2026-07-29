@@ -12,7 +12,7 @@ const nodeTypes = [
   "grid",
   "image"
 ];
-const VISION_MODEL = "@cf/moondream/moondream3.1-9B-A2B";
+const VISION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const constraintTypes = [
   "inside",
   "align_left",
@@ -298,13 +298,22 @@ export async function extractSceneGraph({ ai, reference, hints = {} }) {
   const languageHint =
     typeof hints?.language === "string" ? ` Preferred language: ${hints.language}.` : "";
   const response = await ai.run(VISION_MODEL, {
-    task: "query",
     image,
-    question:
-      "Extract a reference-agnostic editable page scene graph. Measure every visible region, text box, line, border, grid, shape, and image. Use normalized bounding boxes, stable IDs, explicit z-order, typography, colors, RTL/LTR direction, parent relationships, and geometric constraints. A semantic table may be a grid or independent shapes according to its actual visual construction. Never invent fixture-specific node types. " +
-      `Return only scene-graph.v1 JSON matching this schema: ${JSON.stringify(sceneGraphJsonSchema)}.${languageHint}`,
-    reasoning: false,
-    stream: false,
+    messages: [
+      {
+        role: "system",
+        content:
+          "Extract a reference-agnostic editable page scene graph. Measure every visible region, text box, line, border, grid, shape, and image. Use normalized bounding boxes, stable IDs, explicit z-order, typography, colors, RTL/LTR direction, parent relationships, and geometric constraints. A semantic table may be a grid or independent shapes according to its actual visual construction. Never invent fixture-specific node types."
+      },
+      {
+        role: "user",
+        content: `Return only scene-graph.v1 JSON for the attached reference.${languageHint}`
+      }
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: sceneGraphJsonSchema
+    },
     temperature: 0,
     max_tokens: 4200
   });
@@ -328,17 +337,25 @@ export async function correctSceneGraph({
   if (!ai?.run) throw new Error("SCENE_AI_UNAVAILABLE: Workers AI binding is missing");
   const image = `data:${reference.mimeType};base64,${Buffer.from(reference.bytes).toString("base64")}`;
   const response = await ai.run(VISION_MODEL, {
-    task: "query",
     image,
-    question:
-      "Correct this editable scene graph from independent rendered-validation evidence. Preserve every measured reference feature that did not fail. Modify only nodes named by the validation hints. Return only scene-graph.v1 JSON matching the supplied schema. " +
-      JSON.stringify({
-        schema: sceneGraphJsonSchema,
-        current_scene: scene,
-        validation_hints: correctionHints
-      }),
-    reasoning: false,
-    stream: false,
+    messages: [
+      {
+        role: "system",
+        content:
+          "Correct an editable scene graph from independent rendered-validation evidence. Preserve every measured reference feature that did not fail. Modify only nodes named by the validation hints. Return only scene-graph.v1 JSON."
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          current_scene: scene,
+          validation_hints: correctionHints
+        })
+      }
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: sceneGraphJsonSchema
+    },
     temperature: 0,
     max_tokens: 4200
   });
