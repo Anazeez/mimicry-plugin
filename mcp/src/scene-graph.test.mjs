@@ -44,12 +44,16 @@ test("sends the actual reference image to Workers AI and validates its scene gra
     hints: { language: "ar" }
   });
 
-  assert.deepEqual(calls[0].input, { prompt: "agree" });
-  assert.equal(calls[1].model, "@cf/meta/llama-3.2-11b-vision-instruct");
-  assert.match(calls[1].input.image, /^data:image\/jpeg;base64,/);
-  assert.equal(calls[1].input.temperature, 0);
-  assert.equal(calls[1].input.response_format.type, "json_object");
-  assert.equal(calls[1].input.max_tokens, 7000);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].model, "@cf/moonshotai/kimi-k2.6");
+  assert.match(
+    calls[0].input.messages[1].content[1].image_url.url,
+    /^data:image\/jpeg;base64,/
+  );
+  assert.equal(calls[0].input.temperature, 0);
+  assert.equal(calls[0].input.response_format.type, "json_schema");
+  assert.ok(calls[0].input.response_format.json_schema.properties.nodes);
+  assert.equal(calls[0].input.max_tokens, 7000);
   assert.deepEqual(result, graph);
 });
 

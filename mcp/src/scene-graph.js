@@ -12,6 +12,7 @@ const nodeTypes = [
   "grid",
   "image"
 ];
+const VISION_MODEL = "@cf/moonshotai/kimi-k2.6";
 const constraintTypes = [
   "inside",
   "align_left",
@@ -219,7 +220,10 @@ const parseVisionResponse = (response) => {
   const raw =
     typeof response === "string"
       ? response
-      : response?.response ?? response?.result ?? response?.output;
+      : response?.response ??
+        response?.result ??
+        response?.output ??
+        response?.choices?.[0]?.message?.content;
   if (raw && typeof raw === "object") return raw;
   if (typeof raw !== "string") {
     throw new Error("SCENE_RESPONSE: Workers AI returned no structured scene graph");
@@ -289,15 +293,10 @@ const applyNonGeometricHints = (scene, hints = {}) => {
 
 export async function extractSceneGraph({ ai, reference, hints = {} }) {
   if (!ai?.run) throw new Error("SCENE_AI_UNAVAILABLE: Workers AI binding is missing");
-  // Cloudflare requires one account-level agreement request before this Meta
-  // vision model can be used. The agreement is idempotent after acceptance.
-  await ai.run("@cf/meta/llama-3.2-11b-vision-instruct", {
-    prompt: "agree"
-  });
   const image = `data:${reference.mimeType};base64,${Buffer.from(reference.bytes).toString("base64")}`;
   const languageHint =
     typeof hints?.language === "string" ? ` Preferred language: ${hints.language}.` : "";
-  const response = await ai.run("@cf/meta/llama-3.2-11b-vision-instruct", {
+  const response = await ai.run(VISION_MODEL, {
     messages: [
       {
         role: "system",
@@ -306,16 +305,26 @@ export async function extractSceneGraph({ ai, reference, hints = {} }) {
       },
       {
         role: "user",
-        content: `Return only scene-graph.v1 JSON for the attached reference.${languageHint}`
+        content: [
+          {
+            type: "text",
+            text: `Return only scene-graph.v1 JSON for the attached reference.${languageHint}`
+          },
+          {
+            type: "image_url",
+            image_url: { url: image }
+          }
+        ]
       }
     ],
-    image,
     // Cloudflare's vision endpoint rejects some otherwise-valid complex JSON
     // Schema keywords before inference. Request JSON mode here and keep the
     // stricter Zod scene-graph validation immediately below.
     response_format: {
-      type: "json_object"
+      type: "json_schema",
+      json_schema: sceneGraphJsonSchema
     },
+    chat_template_kwargs: { thinking: false },
     temperature: 0,
     max_tokens: 7000
   });
@@ -338,7 +347,7 @@ export async function correctSceneGraph({
 }) {
   if (!ai?.run) throw new Error("SCENE_AI_UNAVAILABLE: Workers AI binding is missing");
   const image = `data:${reference.mimeType};base64,${Buffer.from(reference.bytes).toString("base64")}`;
-  const response = await ai.run("@cf/meta/llama-3.2-11b-vision-instruct", {
+  const response = await ai.run(VISION_MODEL, {
     messages: [
       {
         role: "system",
@@ -347,16 +356,26 @@ export async function correctSceneGraph({
       },
       {
         role: "user",
-        content: JSON.stringify({
-          current_scene: scene,
-          validation_hints: correctionHints
-        })
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              current_scene: scene,
+              validation_hints: correctionHints
+            })
+          },
+          {
+            type: "image_url",
+            image_url: { url: image }
+          }
+        ]
       }
     ],
-    image,
     response_format: {
-      type: "json_object"
+      type: "json_schema",
+      json_schema: sceneGraphJsonSchema
     },
+    chat_template_kwargs: { thinking: false },
     temperature: 0,
     max_tokens: 7000
   });
