@@ -6,6 +6,7 @@ import app, {
   ArtifactRenderWorkflow,
   ArtifactRendererContainer,
   ArtifactRendererContainerV2,
+  ArtifactRendererContainerV3,
   ArtifactStore,
 } from "./index.js";
 import { createProtectedApi, createPublicApi } from "./access.js";
@@ -29,6 +30,7 @@ export {
   ArtifactRenderWorkflow,
   ArtifactRendererContainer,
   ArtifactRendererContainerV2,
+  ArtifactRendererContainerV3,
   ArtifactStore
 };
 

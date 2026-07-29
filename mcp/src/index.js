@@ -281,6 +281,7 @@ export class ArtifactRendererContainer extends Container {
 // A new class identity forces Cloudflare to instantiate the image attached to
 // this deployment instead of reusing a pre-deployment container instance.
 export class ArtifactRendererContainerV2 extends ArtifactRendererContainer {}
+export class ArtifactRendererContainerV3 extends ArtifactRendererContainer {}
 
 export class ArtifactRenderWorkflow extends WorkflowEntrypoint {
   async run(event, step) {
