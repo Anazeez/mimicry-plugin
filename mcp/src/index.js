@@ -315,6 +315,7 @@ export class ArtifactRendererContainerV6 extends ArtifactRendererContainer {}
 export class ArtifactRendererContainerV7 extends ArtifactRendererContainer {}
 export class ArtifactRendererContainerV8 extends ArtifactRendererContainer {}
 export class ArtifactRendererContainerV9 extends ArtifactRendererContainer {}
+export class ArtifactRendererContainerV10 extends ArtifactRendererContainer {}
 
 export class ArtifactRenderWorkflow extends WorkflowEntrypoint {
   async run(event, step) {

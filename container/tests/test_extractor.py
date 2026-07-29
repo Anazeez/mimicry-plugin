@@ -5,7 +5,11 @@ from unittest.mock import patch
 
 from PIL import Image, ImageDraw
 
-from container.app.extractor import _expand_boundary_artwork, extract_scene_graph
+from container.app.extractor import (
+    _expand_boundary_artwork,
+    _text_width_units,
+    extract_scene_graph,
+)
 from container.app.schemas import validate_scene_graph
 
 
@@ -203,6 +207,42 @@ class DeterministicExtractorTests(unittest.TestCase):
         self.assertLessEqual(
             text["text"]["font_size_pt"],
             box_height_points * 0.92 + 0.01,
+        )
+
+    def test_ocr_font_is_capped_to_narrow_box_width(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / "reference.png"
+            Image.new("RGB", (1280, 688), "white").save(reference)
+            tsv = (
+                "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\t"
+                "left\ttop\twidth\theight\tconf\ttext\n"
+                "5\t1\t1\t1\t1\t1\t957\t65\t10\t29\t95\t1\n"
+                "5\t1\t1\t1\t1\t2\t972\t65\t38\t29\t95\tيونيو\n"
+                "5\t1\t1\t1\t1\t3\t1015\t65\t27\t29\t95\t2025\n"
+            )
+            with patch("container.app.extractor._ocr_tsv", return_value=tsv):
+                scene = validate_scene_graph(extract_scene_graph(reference))
+
+        text = next(node for node in scene["nodes"] if node["type"] == "text")
+        page_width_points = scene["page"]["width"] * 72 / 25.4
+        box_width_points = text["bbox"][2] * page_width_points
+        expected_width_cap = (
+            box_width_points * 0.86 / _text_width_units(text["text"]["value"])
+        )
+        self.assertLessEqual(
+            text["text"]["font_size_pt"],
+            expected_width_cap + 0.01,
+        )
+        self.assertLess(text["text"]["font_size_pt"], 12)
+
+    def test_text_width_estimate_handles_mixed_scripts_and_multiline_text(self):
+        self.assertGreater(
+            _text_width_units("2025 يونيو"),
+            _text_width_units("2025"),
+        )
+        self.assertEqual(
+            _text_width_units("short\n2025 يونيو"),
+            _text_width_units("2025 يونيو"),
         )
 
 

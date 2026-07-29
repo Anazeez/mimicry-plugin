@@ -104,9 +104,46 @@ test("retains a failed render preview for owner diagnostics", async () => {
   );
 });
 
-test("reports the bounded HTTP boundary when renderer failure is not JSON", async () => {
+test("retries a cold renderer once with a fresh request body", async () => {
+  const archive = zipSync({
+    "artifact.docx": new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
+    "manifest.json": strToU8(
+      JSON.stringify({ fidelity: { status: "PASS", gates: { S_EDITABILITY: true } } })
+    )
+  });
+  const requests = [];
+  const renderer = {
+    async fetch(request) {
+      requests.push(request);
+      if (requests.length === 1) {
+        return new Response("container starting", {
+          status: 503,
+          headers: { "content-type": "text/plain; charset=utf-8" }
+        });
+      }
+      return new Response(archive, {
+        status: 200,
+        headers: { "content-type": "application/zip" }
+      });
+    }
+  };
+
+  const result = await extractAndRenderInContainer({
+    renderer,
+    reference,
+    hints: {},
+    retryDelayMs: 0
+  });
+  assert.equal(requests.length, 2);
+  assert.notEqual(requests[0], requests[1]);
+  assert.deepEqual(Array.from(result.bytes), [0x50, 0x4b, 0x03, 0x04]);
+});
+
+test("reports the bounded HTTP boundary after cold-start retries are exhausted", async () => {
+  let calls = 0;
   const renderer = {
     async fetch() {
+      calls += 1;
       return new Response("upstream container unavailable", {
         status: 503,
         headers: { "content-type": "text/plain; charset=utf-8" }
@@ -114,7 +151,12 @@ test("reports the bounded HTTP boundary when renderer failure is not JSON", asyn
     }
   };
   await assert.rejects(
-    extractAndRenderInContainer({ renderer, reference, hints: {} }),
+    extractAndRenderInContainer({
+      renderer,
+      reference,
+      hints: {},
+      retryDelayMs: 0
+    }),
     (error) => {
       assert.ok(error instanceof ContainerRenderError);
       assert.equal(error.code, "RENDER_FAILED");
@@ -125,4 +167,5 @@ test("reports the bounded HTTP boundary when renderer failure is not JSON", asyn
       return true;
     }
   );
+  assert.equal(calls, 3);
 });

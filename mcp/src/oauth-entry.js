@@ -14,6 +14,7 @@ import app, {
   ArtifactRendererContainerV7,
   ArtifactRendererContainerV8,
   ArtifactRendererContainerV9,
+  ArtifactRendererContainerV10,
   ArtifactStore,
 } from "./index.js";
 import { createProtectedApi, createPublicApi } from "./access.js";
@@ -45,6 +46,7 @@ export {
   ArtifactRendererContainerV7,
   ArtifactRendererContainerV8,
   ArtifactRendererContainerV9,
+  ArtifactRendererContainerV10,
   ArtifactStore
 };
 

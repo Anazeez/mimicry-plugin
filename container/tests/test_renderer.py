@@ -10,6 +10,7 @@ import zipfile
 
 from PIL import Image, ImageDraw
 
+from container.app.extractor import _text_width_units
 from container.app.schemas import validate_scene_graph
 from container.app.renderer import (
     _anchor_to_first_page,
@@ -131,6 +132,11 @@ class NativeRendererTests(unittest.TestCase):
             self.assertNotIn("reference-full-page", xml)
 
     def test_fitted_rtl_text_round_trips_without_line_height_displacement(self):
+        text_value = "2025 يونيو 1"
+        box_width_points = 0.0709 * 297.0 * 72 / 25.4
+        fitted_font_size = (
+            box_width_points * 0.86 / _text_width_units(text_value)
+        )
         scene = validate_scene_graph(
             {
                 "version": "scene-graph.v1",
@@ -147,10 +153,10 @@ class NativeRendererTests(unittest.TestCase):
                         "z": 30,
                         "editable": True,
                         "text": {
-                            "value": "2025 يونيو 1",
+                            "value": text_value,
                             "direction": "rtl",
                             "font_family": "Arial",
-                            "font_size_pt": 21.75,
+                            "font_size_pt": fitted_font_size,
                             "weight": 400,
                             "align": "right",
                             "color": "#111111",

@@ -35,44 +35,70 @@ const withTimeout = async (promise, controller, timeoutMs) => {
   }
 };
 
+const wait = (delayMs) =>
+  delayMs > 0
+    ? new Promise((resolve) => setTimeout(resolve, delayMs))
+    : Promise.resolve();
+
 export async function extractAndRenderInContainer({
   renderer,
   reference,
   hints = {},
-  timeoutMs = 180_000
+  timeoutMs = 180_000,
+  retryDelayMs = 250
 }) {
   if (!renderer?.fetch) {
     throw new ContainerRenderError(
-      "Artifact Mimicry renderer unavailable. No editable artifact was generated.",
+      "Artifact Reconstructor renderer unavailable. No editable artifact was generated.",
       null,
       "RENDERER_UNAVAILABLE"
     );
   }
-  const form = new FormData();
-  form.set("hints", new Blob([JSON.stringify(hints)], { type: "application/json" }), "hints.json");
-  form.set(
-    "reference",
-    new Blob([reference.bytes], { type: reference.mimeType }),
-    reference.filename || "reference.bin"
-  );
-  const controller = new AbortController();
+  const buildRequest = (signal) => {
+    const form = new FormData();
+    form.set(
+      "hints",
+      new Blob([JSON.stringify(hints)], { type: "application/json" }),
+      "hints.json"
+    );
+    form.set(
+      "reference",
+      new Blob([reference.bytes], { type: reference.mimeType }),
+      reference.filename || "reference.bin"
+    );
+    return new Request("http://renderer/extract-render", {
+      method: "POST",
+      body: form,
+      signal
+    });
+  };
+  const startedAt = Date.now();
   let response;
   try {
-    response = await withTimeout(
-      renderer.fetch(
-        new Request("http://renderer/extract-render", {
-          method: "POST",
-          body: form,
-          signal: controller.signal
-        })
-      ),
-      controller,
-      timeoutMs
-    );
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const controller = new AbortController();
+      const remainingMs = Math.max(1, timeoutMs - (Date.now() - startedAt));
+      response = await withTimeout(
+        renderer.fetch(buildRequest(controller.signal)),
+        controller,
+        remainingMs
+      );
+      if (response.status !== 503 || attempt === 2) break;
+      try {
+        await response.body?.cancel();
+      } catch {
+        // The retry uses a fresh request body; body cancellation is best effort.
+      }
+      const delayMs = Math.min(
+        retryDelayMs * 2 ** attempt,
+        Math.max(0, timeoutMs - (Date.now() - startedAt))
+      );
+      await wait(delayMs);
+    }
   } catch (error) {
     if (error instanceof ContainerRenderError) throw error;
     throw new ContainerRenderError(
-      "Artifact Mimicry renderer unavailable. No editable artifact was generated.",
+      "Artifact Reconstructor renderer unavailable. No editable artifact was generated.",
       null,
       "RENDERER_UNAVAILABLE"
     );
@@ -90,7 +116,7 @@ export async function extractAndRenderInContainer({
         ? payload.diagnostic
         : `Renderer HTTP ${response.status} (${response.headers.get("content-type") || "unknown content type"})`;
     throw new ContainerRenderError(
-      payload.message || "Artifact Mimicry validation failed. No editable artifact was generated.",
+      payload.message || "Artifact Reconstructor validation failed. No editable artifact was generated.",
       payload.validation || null,
       payload.code || "RENDER_FAILED",
       payload.debug_preview_base64 || null,
@@ -120,7 +146,7 @@ export async function extractAndRenderInContainer({
   const manifest = JSON.parse(strFromU8(manifestBytes));
   if (manifest?.fidelity?.status !== "PASS") {
     throw new ContainerRenderError(
-      "Artifact Mimicry validation failed. No editable artifact was generated.",
+      "Artifact Reconstructor validation failed. No editable artifact was generated.",
       manifest?.fidelity || null,
       "FIDELITY_FAILED"
     );

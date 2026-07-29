@@ -7,6 +7,7 @@ import itertools
 import re
 import shutil
 import subprocess
+import unicodedata
 
 from PIL import Image
 
@@ -211,11 +212,55 @@ def _measured_font_size(
     return max(6, min(72, visual_height_points * expansion))
 
 
+def _line_width_units(value):
+    units = 0.0
+    for character in value:
+        category = unicodedata.category(character)
+        if category.startswith("M"):
+            continue
+        if character.isspace():
+            units += 0.32
+        elif "\u0600" <= character <= "\u06ff":
+            units += 0.72
+        elif (
+            "\u2e80" <= character <= "\u9fff"
+            or "\uac00" <= character <= "\ud7af"
+        ):
+            units += 1.0
+        elif character.isdigit():
+            units += 0.56
+        elif character.isupper():
+            units += 0.67
+        elif character.islower():
+            units += 0.52
+        elif category.startswith("P"):
+            units += 0.34
+        else:
+            units += 0.7
+    return units
+
+
+def _text_width_units(value):
+    """Estimate the longest line's portable font-width units.
+
+    This is intentionally font-file independent: the generated DOCX may be
+    opened by Word, LibreOffice, or Google Docs with different installed font
+    files. Conservative script-aware units prevent those engines from wrapping
+    a line and moving an absolutely positioned shape during round-trip layout.
+    """
+
+    return max(
+        (max(0.5, _line_width_units(line)) for line in value.splitlines()),
+        default=0.5,
+    )
+
+
 def _ocr_nodes(
     path,
     image,
     vertical=None,
     horizontal=None,
+    page_width_mm=297,
     page_height_mm=210,
 ):
     width, height = image.size
@@ -332,9 +377,14 @@ def _ocr_nodes(
         box_height_points = (
             box_height / height * page_height_mm * POINTS_PER_MM
         )
+        box_width_points = box_width / width * page_width_mm * POINTS_PER_MM
+        line_count = max(1, len(value.splitlines()))
+        height_cap = box_height_points * 0.92 / line_count
+        width_cap = box_width_points * 0.86 / _text_width_units(value)
         fitted_font_size = min(
             measured_font_size,
-            max(6, box_height_points * 0.92),
+            max(6, height_cap),
+            max(6, width_cap),
         )
         nodes.append(
             {
@@ -484,6 +534,7 @@ def extract_scene_graph(reference_path, hints=None):
         image,
         vertical,
         horizontal,
+        page_width_mm=page_width,
         page_height_mm=page_height,
     )
     nodes = []
