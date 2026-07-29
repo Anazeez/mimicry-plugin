@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { jsonrepair } from "jsonrepair";
 
 const nodeTypes = [
   "group",
@@ -232,9 +233,21 @@ const parseVisionResponse = (response) => {
   if (firstBrace !== -1 && lastBrace > firstBrace) {
     candidates.push(raw.slice(firstBrace, lastBrace + 1));
   }
+  const isSceneCandidate = (value) =>
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    value.version === "scene-graph.v1";
   for (const candidate of [...new Set(candidates)]) {
     try {
-      return JSON.parse(candidate);
+      const parsed = JSON.parse(candidate);
+      if (isSceneCandidate(parsed)) return parsed;
+    } catch {
+      // Continue into deterministic repair.
+    }
+    try {
+      const repaired = JSON.parse(jsonrepair(candidate));
+      if (isSceneCandidate(repaired)) return repaired;
     } catch {
       // Try the next deterministic extraction form.
     }
