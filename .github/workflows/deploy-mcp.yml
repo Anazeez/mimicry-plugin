@@ -18,6 +18,16 @@ jobs:
           cache-dependency-path: mcp/package-lock.json
       - run: npm ci
       - run: npm test
+      - name: Build and test the production renderer container
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --tag artifact-mimicry-renderer:test \
+            ../container
+          docker run --rm \
+            --platform linux/amd64 \
+            artifact-mimicry-renderer:test \
+            pytest -q
       - name: Resolve isolated OAuth KV namespace
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
