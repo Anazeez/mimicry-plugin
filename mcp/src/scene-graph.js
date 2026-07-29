@@ -382,6 +382,28 @@ const canonicalStyle = (node, type) => {
   };
 };
 
+const canonicalBBox = (value) => {
+  if (
+    !Array.isArray(value) ||
+    value.length !== 4 ||
+    value.some((item) => !Number.isFinite(Number(item)))
+  ) {
+    return value;
+  }
+  let [x, y, width, height] = value.map(Number);
+  if (
+    [x, y, width, height].some((item) => item > 1) &&
+    [x, y, width, height].every((item) => item <= 100)
+  ) {
+    [x, y, width, height] = [x, y, width, height].map((item) => item / 100);
+  }
+  x = Math.min(1, Math.max(0, x));
+  y = Math.min(1, Math.max(0, y));
+  width = Math.min(Math.max(0, width), 1 - x);
+  height = Math.min(Math.max(0, height), 1 - y);
+  return [x, y, width, height].map((item) => Math.round(item * 1_000_000) / 1_000_000);
+};
+
 const canonicalizeSceneNodeTypes = (scene) => ({
   ...scene,
   nodes: Array.isArray(scene?.nodes)
@@ -394,6 +416,7 @@ const canonicalizeSceneNodeTypes = (scene) => ({
           z: Number.isInteger(node.z) ? node.z : index,
           editable: true,
           type,
+          bbox: canonicalBBox(node.bbox),
           ...(node.text != null ? { text: canonicalText(node.text) } : {}),
           ...(type !== "text" && type !== "group"
             ? { style: canonicalStyle(node, type) }

@@ -255,6 +255,23 @@ test("normalizes top-level paint and neutral image metadata", async () => {
   assert.equal(result.nodes[1].content_ref, "reference-region:portrait");
 });
 
+test("normalizes percentage boxes and clips page-edge overflow", async () => {
+  const shorthandGraph = {
+    ...graph,
+    nodes: [{ ...graph.nodes[0], bbox: [92, 10, 12, 20] }]
+  };
+  const ai = { async run() { return { response: JSON.stringify(shorthandGraph) }; } };
+  const result = await extractSceneGraph({
+    ai,
+    reference: {
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xdb]),
+      mimeType: "image/jpeg",
+      digest: "abc"
+    }
+  });
+  assert.deepEqual(result.nodes[0].bbox, [0.92, 0.1, 0.08, 0.2]);
+});
+
 test("prefers OpenAI-style choices over an empty legacy response field", async () => {
   const ai = {
     async run() {
