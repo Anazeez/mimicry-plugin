@@ -233,7 +233,7 @@ export class ArtifactMimicryMCP extends McpAgent {
     } while (true);
   }
 
-  async artifactJobResponse(jobId, longPoll = true) {
+  async artifactJobResponse(jobId, longPoll = true, legacyPass = false) {
     const record = await this.readArtifactJob(jobId, longPoll);
     if (!record) {
       return {
@@ -264,7 +264,9 @@ export class ArtifactMimicryMCP extends McpAgent {
         ]
       };
     }
-    const structuredContent = { ...record, job_id: jobId };
+    const structuredContent = legacyPass
+      ? record
+      : { ...record, job_id: jobId };
     return {
       structuredContent,
       content: [
@@ -312,7 +314,7 @@ export class ArtifactMimicryMCP extends McpAgent {
         },
         outputSchema: {
           status: z.enum(["PROCESSING", "PASS"]),
-          job_id: z.string(),
+          job_id: z.string().optional(),
           filename: z.string().optional(),
           download_url: z.string().url().optional(),
           expires_at: z.string().optional(),
@@ -349,6 +351,7 @@ export class ArtifactMimicryMCP extends McpAgent {
           if (compatibilityJobId) {
             return this.artifactJobResponse(
               z.string().uuid().parse(compatibilityJobId),
+              true,
               true
             );
           }
