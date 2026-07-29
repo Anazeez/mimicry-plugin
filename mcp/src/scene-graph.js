@@ -357,18 +357,50 @@ const canonicalNodeType = (node, normalized) => {
   return normalized;
 };
 
+const canonicalColor = (value) => {
+  if (typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value)) return value;
+  if (
+    value &&
+    typeof value === "object" &&
+    typeof value.color === "string" &&
+    /^#[0-9a-fA-F]{6}$/.test(value.color)
+  ) {
+    return value.color;
+  }
+  return null;
+};
+
+const canonicalStyle = (node, type) => {
+  if (type === "text" || type === "group") return node.style;
+  const style = node.style && typeof node.style === "object" ? node.style : {};
+  return {
+    fill: canonicalColor(style.fill ?? node.fill),
+    stroke: canonicalColor(style.stroke ?? node.stroke),
+    stroke_width: Number(style.stroke_width ?? node.stroke_width ?? 0),
+    corner_radius: Number(style.corner_radius ?? node.corner_radius ?? 0),
+    opacity: Number(style.opacity ?? node.opacity ?? 1)
+  };
+};
+
 const canonicalizeSceneNodeTypes = (scene) => ({
   ...scene,
   nodes: Array.isArray(scene?.nodes)
     ? scene.nodes.map((node, index) => {
         if (!node || typeof node.type !== "string") return node;
         const normalized = node.type.trim().toLowerCase().replace(/[\s-]+/g, "_");
+        const type = canonicalNodeType(node, normalized);
         return {
           ...node,
           z: Number.isInteger(node.z) ? node.z : index,
           editable: true,
-          type: canonicalNodeType(node, normalized),
-          text: canonicalText(node.text)
+          type,
+          ...(node.text != null ? { text: canonicalText(node.text) } : {}),
+          ...(type !== "text" && type !== "group"
+            ? { style: canonicalStyle(node, type) }
+            : {}),
+          ...(type === "image"
+            ? { content_ref: node.content_ref || `reference-region:${node.id || index}` }
+            : {})
         };
       })
     : scene?.nodes

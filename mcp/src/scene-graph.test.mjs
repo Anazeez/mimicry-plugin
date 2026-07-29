@@ -222,6 +222,39 @@ test("infers a text node and editable text metadata from model shorthand", async
   assert.equal(result.nodes[0].text.color, "#111111");
 });
 
+test("normalizes top-level paint and neutral image metadata", async () => {
+  const shorthandGraph = {
+    ...graph,
+    nodes: [
+      {
+        id: "panel",
+        type: "rectangle",
+        bbox: [0.1, 0.1, 0.5, 0.5],
+        fill: "#FBE7DE",
+        stroke: "#EF9A74"
+      },
+      {
+        id: "portrait",
+        type: "image",
+        bbox: [0.2, 0.2, 0.1, 0.1]
+      }
+    ]
+  };
+  const ai = { async run() { return { response: JSON.stringify(shorthandGraph) }; } };
+  const result = await extractSceneGraph({
+    ai,
+    reference: {
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xdb]),
+      mimeType: "image/jpeg",
+      digest: "abc"
+    }
+  });
+  assert.equal(result.nodes[0].style.fill, "#FBE7DE");
+  assert.equal(result.nodes[0].style.stroke, "#EF9A74");
+  assert.equal(result.nodes[1].style.opacity, 1);
+  assert.equal(result.nodes[1].content_ref, "reference-region:portrait");
+});
+
 test("prefers OpenAI-style choices over an empty legacy response field", async () => {
   const ai = {
     async run() {
