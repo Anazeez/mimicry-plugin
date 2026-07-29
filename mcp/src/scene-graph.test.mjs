@@ -27,10 +27,10 @@ const graph = {
 };
 
 test("sends the actual reference image to Workers AI and validates its scene graph", async () => {
-  let call;
+  const calls = [];
   const ai = {
     async run(model, input) {
-      call = { model, input };
+      calls.push({ model, input });
       return { response: JSON.stringify(graph) };
     }
   };
@@ -44,10 +44,12 @@ test("sends the actual reference image to Workers AI and validates its scene gra
     hints: { language: "ar" }
   });
 
-  assert.equal(call.model, "@cf/meta/llama-3.2-11b-vision-instruct");
-  assert.match(call.input.image, /^data:image\/jpeg;base64,/);
-  assert.equal(call.input.temperature, 0);
-  assert.ok(call.input.guided_json);
+  assert.deepEqual(calls[0].input, { prompt: "agree" });
+  assert.equal(calls[1].model, "@cf/meta/llama-3.2-11b-vision-instruct");
+  assert.match(calls[1].input.image, /^data:image\/jpeg;base64,/);
+  assert.equal(calls[1].input.temperature, 0);
+  assert.equal(calls[1].input.response_format.type, "json_schema");
+  assert.ok(calls[1].input.response_format.json_schema.properties.nodes);
   assert.deepEqual(result, graph);
 });
 

@@ -259,6 +259,11 @@ const applyNonGeometricHints = (scene, hints = {}) => {
 
 export async function extractSceneGraph({ ai, reference, hints = {} }) {
   if (!ai?.run) throw new Error("SCENE_AI_UNAVAILABLE: Workers AI binding is missing");
+  // Cloudflare requires one account-level agreement request before this Meta
+  // vision model can be used. The agreement is idempotent after acceptance.
+  await ai.run("@cf/meta/llama-3.2-11b-vision-instruct", {
+    prompt: "agree"
+  });
   const image = `data:${reference.mimeType};base64,${Buffer.from(reference.bytes).toString("base64")}`;
   const languageHint =
     typeof hints?.language === "string" ? ` Preferred language: ${hints.language}.` : "";
@@ -275,7 +280,10 @@ export async function extractSceneGraph({ ai, reference, hints = {} }) {
       }
     ],
     image,
-    guided_json: sceneGraphJsonSchema,
+    response_format: {
+      type: "json_schema",
+      json_schema: sceneGraphJsonSchema
+    },
     temperature: 0,
     max_tokens: 7000
   });
@@ -314,7 +322,10 @@ export async function correctSceneGraph({
       }
     ],
     image,
-    guided_json: sceneGraphJsonSchema,
+    response_format: {
+      type: "json_schema",
+      json_schema: sceneGraphJsonSchema
+    },
     temperature: 0,
     max_tokens: 7000
   });
