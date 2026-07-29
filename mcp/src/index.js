@@ -9,7 +9,10 @@ import {
 } from "./file-handoff.js";
 import { ContainerRenderError } from "./container-client.js";
 import { executeReferencePipeline } from "./pipeline.js";
-import { mimicryHintsInputSchema } from "./task-schema.js";
+import {
+  mimicryHintsInputSchema,
+  resolveMimicryHints
+} from "./task-schema.js";
 
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -169,6 +172,17 @@ export class ArtifactMimicryMCP extends McpAgent {
             .describe(
               "Optional non-geometric guidance or editable text replacements. The reference controls measured geometry."
             ),
+          task: mimicryHintsInputSchema
+            .optional()
+            .describe(
+              "Backward-compatible alias for hints used by already-installed connectors."
+            ),
+          expectations: z
+            .unknown()
+            .optional()
+            .describe(
+              "Backward-compatible installed-connector field. It cannot override measured geometry or validation."
+            ),
           filename: z.string().optional().describe("Desired .docx filename.")
         },
         outputSchema: {
@@ -185,13 +199,19 @@ export class ArtifactMimicryMCP extends McpAgent {
         },
         _meta: EXECUTE_TOOL_META
       },
-      async ({ reference_file: referenceFile, hints = {}, filename }) => {
+      async ({
+        reference_file: referenceFile,
+        hints,
+        task,
+        filename
+      }) => {
         try {
           referenceFileSchema.parse(referenceFile);
+          const resolvedHints = resolveMimicryHints({ hints, task });
           const renderer = await getRandom(this.env.RENDERER, 1);
           const { bytes, report } = await executeReferencePipeline({
             referenceFile,
-            hints,
+            hints: resolvedHints,
             ai: this.env.AI,
             renderer
           });

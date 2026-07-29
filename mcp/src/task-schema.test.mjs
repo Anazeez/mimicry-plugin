@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { z } from "zod";
 
-import { mimicryHintsInputSchema } from "./task-schema.js";
+import {
+  mimicryHintsInputSchema,
+  resolveMimicryHints
+} from "./task-schema.js";
 
 test("advertises optional non-geometric hints rather than requiring model-authored shapes", () => {
   const schema = z.toJSONSchema(mimicryHintsInputSchema);
@@ -31,4 +34,17 @@ test("accepts text replacements but strips attempted geometry overrides", () => 
     language: "ar",
     replacement_text: { title: "اجتماع يومي" }
   });
+});
+
+test("maps the installed legacy task contract into non-geometric hints", () => {
+  assert.deepEqual(
+    resolveMimicryHints({
+      task: {
+        instructions: "Preserve the RTL text.",
+        elements: [{ id: "fixture-specific-shape" }]
+      },
+      expectations: { editable: true }
+    }),
+    { instructions: "Preserve the RTL text." }
+  );
 });

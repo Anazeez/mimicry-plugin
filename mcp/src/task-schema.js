@@ -29,3 +29,13 @@ export const mimicryHintsInputSchema = z
 // Retained as an alias for older installed connector drafts. It no longer
 // accepts or requires a model-authored page decomposition.
 export const mimicryTaskInputSchema = mimicryHintsInputSchema;
+
+export const resolveMimicryHints = ({ hints, task } = {}) => {
+  if (hints && typeof hints === "object") {
+    return mimicryHintsInputSchema.parse(hints);
+  }
+  if (task && typeof task === "object") {
+    return mimicryHintsInputSchema.parse(task);
+  }
+  return {};
+};
