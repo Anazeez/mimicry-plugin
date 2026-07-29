@@ -49,9 +49,6 @@
       "class_name": "ArtifactRenderWorkflow"
     }
   ],
-  "ai": {
-    "binding": "AI"
-  },
   "vars": {
     "PUBLIC_BASE_URL": "https://artifact-mimicry-mcp.izeesub.workers.dev",
     "OWNER_GITHUB_IDS": "277895262"

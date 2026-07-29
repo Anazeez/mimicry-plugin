@@ -3,8 +3,7 @@ import test from "node:test";
 import { zipSync, strToU8 } from "fflate";
 import {
   ContainerRenderError,
-  renderInContainer,
-  renderWithOneCorrection
+  extractAndRenderInContainer
 } from "./container-client.js";
 
 const reference = {
@@ -20,7 +19,7 @@ const scene = {
   constraints: []
 };
 
-test("sends scene and reference as multipart and returns validated DOCX bytes", async () => {
+test("sends only reference and hints to deterministic container extraction", async () => {
   let request;
   const archive = zipSync({
     "artifact.docx": new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
@@ -38,11 +37,16 @@ test("sends scene and reference as multipart and returns validated DOCX bytes", 
     }
   };
 
-  const result = await renderInContainer({ renderer, scene, reference });
-  assert.equal(new URL(request.url).pathname, "/render");
+  const result = await extractAndRenderInContainer({
+    renderer,
+    reference,
+    hints: { language: "ar" }
+  });
+  assert.equal(new URL(request.url).pathname, "/extract-render");
   assert.equal(request.method, "POST");
   const form = await request.formData();
-  assert.deepEqual(JSON.parse(await form.get("scene").text()), scene);
+  assert.equal(form.get("scene"), null);
+  assert.deepEqual(JSON.parse(await form.get("hints").text()), { language: "ar" });
   assert.deepEqual(
     Array.from(new Uint8Array(await form.get("reference").arrayBuffer())),
     Array.from(reference.bytes)
@@ -66,11 +70,10 @@ test("returns the exact independent validation report on fail-closed response", 
     }
   };
   await assert.rejects(
-    renderInContainer({ renderer, scene, reference }),
+    extractAndRenderInContainer({ renderer, reference, hints: {} }),
     (error) => {
       assert.ok(error instanceof ContainerRenderError);
       assert.deepEqual(error.report, report);
-      assert.equal(error.correctable, true);
       return true;
     }
   );
@@ -92,62 +95,11 @@ test("retains a failed render preview for owner diagnostics", async () => {
     }
   };
   await assert.rejects(
-    renderInContainer({ renderer, scene, reference }),
+    extractAndRenderInContainer({ renderer, reference, hints: {} }),
     (error) => {
       assert.deepEqual(Array.from(error.debugPreview), Array.from(preview));
       assert.equal(error.debugPreviewMime, "image/jpeg");
       return true;
     }
   );
-});
-
-test("makes at most one measured correction and never returns the first failed artifact", async () => {
-  let renders = 0;
-  let corrections = 0;
-  const renderOnce = async ({ scene: current }) => {
-    renders += 1;
-    if (renders === 1) {
-      throw new ContainerRenderError("failed", {
-        status: "FAIL",
-        findings: [{ gate: "G_ALIGNMENT", node_ids: ["grid"] }],
-        correction_hints: [{ gate: "G_ALIGNMENT", node_ids: ["grid"] }]
-      });
-    }
-    return { bytes: new Uint8Array([0x50, 0x4b]), report: { status: "PASS" }, scene: current };
-  };
-  const result = await renderWithOneCorrection({
-    scene,
-    reference,
-    renderOnce,
-    correctScene: async (current, hints) => {
-      corrections += 1;
-      assert.equal(hints[0].gate, "G_ALIGNMENT");
-      return { ...current, corrected: true };
-    }
-  });
-  assert.equal(renders, 2);
-  assert.equal(corrections, 1);
-  assert.equal(result.scene.corrected, true);
-});
-
-test("does not retry non-correctable structural failures", async () => {
-  let renders = 0;
-  await assert.rejects(
-    renderWithOneCorrection({
-      scene,
-      reference,
-      renderOnce: async () => {
-        renders += 1;
-        throw new ContainerRenderError("failed", {
-          status: "FAIL",
-          findings: [{ gate: "S_EDITABILITY", node_ids: [] }]
-        });
-      },
-      correctScene: async () => {
-        throw new Error("must not run");
-      }
-    }),
-    ContainerRenderError
-  );
-  assert.equal(renders, 1);
 });

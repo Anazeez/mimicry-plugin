@@ -1,16 +1,6 @@
 import { strFromU8, unzipSync } from "fflate";
 
 const MAX_RESPONSE_BYTES = 40 * 1024 * 1024;
-const CORRECTABLE_GATES = new Set([
-  "G_ALIGNMENT",
-  "G_RELATIONSHIPS",
-  "G_BORDER_CONTINUITY",
-  "V_CONTRAST",
-  "V_EDGE_SIMILARITY",
-  "V_PALETTE",
-  "V_STRUCTURE"
-]);
-
 export class ContainerRenderError extends Error {
   constructor(
     message,
@@ -31,10 +21,6 @@ export class ContainerRenderError extends Error {
             character.charCodeAt(0)
           )
         : null;
-    const findings = Array.isArray(report?.findings) ? report.findings : [];
-    this.correctable =
-      findings.length > 0 &&
-      findings.every((finding) => CORRECTABLE_GATES.has(finding.gate));
   }
 }
 
@@ -47,10 +33,10 @@ const withTimeout = async (promise, controller, timeoutMs) => {
   }
 };
 
-export async function renderInContainer({
+export async function extractAndRenderInContainer({
   renderer,
-  scene,
   reference,
+  hints = {},
   timeoutMs = 180_000
 }) {
   if (!renderer?.fetch) {
@@ -61,11 +47,7 @@ export async function renderInContainer({
     );
   }
   const form = new FormData();
-  form.set(
-    "scene",
-    new Blob([JSON.stringify(scene)], { type: "application/json" }),
-    "scene.json"
-  );
+  form.set("hints", new Blob([JSON.stringify(hints)], { type: "application/json" }), "hints.json");
   form.set(
     "reference",
     new Blob([reference.bytes], { type: reference.mimeType }),
@@ -76,7 +58,7 @@ export async function renderInContainer({
   try {
     response = await withTimeout(
       renderer.fetch(
-        new Request("http://renderer/render", {
+        new Request("http://renderer/extract-render", {
           method: "POST",
           body: form,
           signal: controller.signal
@@ -136,29 +118,4 @@ export async function renderInContainer({
     );
   }
   return { bytes, report: manifest.fidelity, manifest };
-}
-
-export async function renderWithOneCorrection({
-  scene,
-  reference,
-  renderer,
-  renderOnce = renderInContainer,
-  correctScene
-}) {
-  try {
-    return await renderOnce({ renderer, scene, reference });
-  } catch (error) {
-    if (
-      !(error instanceof ContainerRenderError) ||
-      !error.correctable ||
-      typeof correctScene !== "function"
-    ) {
-      throw error;
-    }
-    const corrected = await correctScene(
-      scene,
-      error.report?.correction_hints || []
-    );
-    return renderOnce({ renderer, scene: corrected, reference });
-  }
 }

@@ -13,6 +13,7 @@ import zipfile
 
 from PIL import Image
 
+from .extractor import extract_scene_graph
 from .renderer import RenderError, render_scene
 from .schemas import SceneGraphError, validate_scene_graph
 from .validator import validate_fidelity
@@ -102,6 +103,29 @@ def render_request(scene_bytes, reference_name, reference_bytes, workspace):
     return output.getvalue()
 
 
+def extract_render_request(reference_name, reference_bytes, hints_bytes, workspace):
+    """Deterministically measure, render, and validate one reference."""
+
+    if len(reference_bytes) > MAX_REFERENCE_BYTES:
+        raise RenderRequestError("REQUEST_TOO_LARGE", "reference exceeds its byte limit", 413)
+    workspace = Path(workspace)
+    workspace.mkdir(parents=True, exist_ok=True)
+    suffix = Path(reference_name or "reference.bin").suffix.lower() or ".bin"
+    reference_path = workspace / ("reference%s" % suffix)
+    reference_path.write_bytes(reference_bytes)
+    try:
+        hints = json.loads((hints_bytes or b"{}").decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RenderRequestError("HINTS_JSON", "hints are not valid UTF-8 JSON") from error
+    scene = extract_scene_graph(reference_path, hints)
+    return render_request(
+        json.dumps(scene, separators=(",", ":")).encode("utf-8"),
+        reference_path.name,
+        reference_bytes,
+        workspace,
+    )
+
+
 def _multipart_parts(content_type, body):
     if not content_type.lower().startswith("multipart/form-data"):
         raise RenderRequestError("REQUEST_MEDIA_TYPE", "multipart/form-data is required", 415)
@@ -143,7 +167,7 @@ class RenderHandler(BaseHTTPRequestHandler):
         self._json(200, {"status": "ok"})
 
     def do_POST(self):
-        if self.path != "/render":
+        if self.path not in {"/render", "/extract-render"}:
             self._json(404, {"status": "NOT_FOUND"})
             return
         try:
@@ -154,17 +178,27 @@ class RenderHandler(BaseHTTPRequestHandler):
                 )
             body = self.rfile.read(length)
             parts = _multipart_parts(self.headers.get("content-type", ""), body)
-            if "scene" not in parts or "reference" not in parts:
+            if "reference" not in parts or (
+                self.path == "/render" and "scene" not in parts
+            ):
                 raise RenderRequestError(
-                    "REQUEST_PARTS", "scene and reference parts are required"
+                    "REQUEST_PARTS", "required multipart fields are missing"
                 )
             with tempfile.TemporaryDirectory(prefix="artifact-mimicry-") as directory:
-                result = render_request(
-                    parts["scene"]["payload"],
-                    parts["reference"]["filename"] or "reference.bin",
-                    parts["reference"]["payload"],
-                    Path(directory),
-                )
+                if self.path == "/extract-render":
+                    result = extract_render_request(
+                        parts["reference"]["filename"] or "reference.bin",
+                        parts["reference"]["payload"],
+                        parts.get("hints", {}).get("payload", b"{}"),
+                        Path(directory),
+                    )
+                else:
+                    result = render_request(
+                        parts["scene"]["payload"],
+                        parts["reference"]["filename"] or "reference.bin",
+                        parts["reference"]["payload"],
+                        Path(directory),
+                    )
             self.send_response(200)
             self.send_header("content-type", "application/zip")
             self.send_header("content-length", str(len(result)))

@@ -6,11 +6,11 @@ templates as native editable artifacts while preserving their visual system.
 It supports LTR, RTL, and mixed-direction layouts.
 
 The `artifact_mimicry.execute` MCP tool is the mandatory rendering path. Version
-1.0 downloads the supplied visual reference, extracts a generic scene graph
-with Workers AI, builds native editable Word objects through LibreOffice in a
-Cloudflare Container, reopens the saved DOCX, renders it, and returns it only
+1.0 downloads the supplied visual reference, measures layout and text
+deterministically inside the private Cloudflare Container, builds native
+editable Word objects through LibreOffice, reopens the saved DOCX, renders it, and returns it only
 after independent structural, geometric, contrast, and visual-fidelity gates
-pass. The runtime permits at most one evidence-driven correction. It never
+pass. It never
 returns a previous artifact, a flattened reference image, or a manually
 approximated fallback.
 
@@ -26,7 +26,7 @@ Governed Jcode and every other MCP service.
 ## Runtime boundary
 
 - MCP and OAuth: Cloudflare Worker
-- Reference analysis: Workers AI vision
+- Reference analysis: deterministic OpenCV geometry and Tesseract OCR in the private container
 - Native DOCX rendering: Cloudflare Container running LibreOffice UNO
 - Validation: saved-file reopen, PDF/PNG render, actual object geometry,
   relationships, border coverage, contrast, edge structure, palette, OCR, and
@@ -41,7 +41,7 @@ fixture name, timetable rule, or meeting-grid rule.
 
 The deployment workflow blocks release unless both suites pass:
 
-1. Worker/MCP routing, OAuth, reference-boundary, scene-graph, correction, and
+1. Worker/MCP routing, OAuth, reference-boundary, deterministic extraction, and
    fail-closed tests.
 2. The exact Linux/AMD64 production container tests, including real
    LibreOffice creation, reopen, rasterization, geometry inspection, visual

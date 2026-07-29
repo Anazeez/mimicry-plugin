@@ -151,7 +151,6 @@ const runArtifactJob = async (
     const { bytes, report } = await executeReferencePipeline({
       referenceFile,
       hints: resolvedHints,
-      ai: env.AI,
       renderer,
     });
     const artifactId = crypto.randomUUID();
