@@ -32,6 +32,10 @@
     {
       "tag": "v7",
       "new_sqlite_classes": ["ArtifactMimicryMCPV3"]
+    },
+    {
+      "tag": "v8",
+      "new_sqlite_classes": ["ArtifactRendererContainerV5"]
     }
   ],
   "durable_objects": {
@@ -46,13 +50,13 @@
       },
       {
         "name": "RENDERER",
-        "class_name": "ArtifactRendererContainerV4"
+        "class_name": "ArtifactRendererContainerV5"
       }
     ]
   },
   "containers": [
     {
-      "class_name": "ArtifactRendererContainerV4",
+      "class_name": "ArtifactRendererContainerV5",
       "image": "../container/Dockerfile",
       "instance_type": "standard-1",
       "max_instances": 1
