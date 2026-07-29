@@ -178,6 +178,20 @@ def validate_scene_graph(value):
                 raise SceneGraphError("SCENE_IMAGE", "%s requires content_ref" % node_id)
             normalized["content_ref"] = content_ref
             normalized["crop"] = list(node.get("crop", [0, 0, 1, 1]))
+            raster_justification = node.get("raster_justification")
+            if raster_justification is not None:
+                if raster_justification not in {
+                    "source_artwork",
+                    "source_illustration",
+                    "source_logo",
+                    "source_photo",
+                    "source_texture",
+                }:
+                    raise SceneGraphError(
+                        "SCENE_IMAGE",
+                        "%s has an unsupported raster justification" % node_id,
+                    )
+                normalized["raster_justification"] = raster_justification
         if node_type == "grid":
             rows = int(_number(node.get("rows"), "SCENE_GRID", "%s rows" % node_id))
             columns = int(_number(node.get("columns"), "SCENE_GRID", "%s columns" % node_id))

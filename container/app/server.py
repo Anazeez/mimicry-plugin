@@ -52,9 +52,19 @@ class RenderRequestError(ValueError):
 
 class FidelityValidationError(RenderRequestError):
     def __init__(self, report, preview_bytes):
+        code = (
+            report.get("status")
+            if report.get("status")
+            in {
+                "EDITABILITY_FAILED",
+                "FIDELITY_FAILED",
+                "VALIDATION_INCOMPLETE",
+            }
+            else "FIDELITY_FAILED"
+        )
         super().__init__(
-            "FIDELITY_FAILED",
-            "Generated DOCX failed independent fidelity validation",
+            code,
+            "Generated DOCX failed independent validation at %s" % code,
             422,
         )
         self.report = report

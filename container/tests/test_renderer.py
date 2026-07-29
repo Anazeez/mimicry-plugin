@@ -50,6 +50,18 @@ class NativeRendererTests(unittest.TestCase):
             self.assertGreaterEqual(artifact.manifest["native_shape_count"], 6)
             self.assertEqual(artifact.manifest["image_object_count"], 1)
             self.assertEqual(artifact.manifest["full_page_image_count"], 0)
+            self.assertIn("package_audit", artifact.manifest)
+            audit = artifact.manifest["package_audit"]
+            self.assertTrue(audit["audit_complete"], audit)
+            self.assertEqual(audit["native_text_regions"], 2, audit)
+            self.assertGreaterEqual(audit["native_shape_objects"], 5, audit)
+            self.assertEqual(audit["embedded_image_objects"], 1, audit)
+            self.assertEqual(audit["largest_unjustified_raster_ratio"], 0.0, audit)
+            self.assertEqual(audit["total_unjustified_raster_ratio"], 0.0, audit)
+            self.assertFalse(audit["source_reference_embedded"], audit)
+            self.assertFalse(audit["monolithic_flattened_object"], audit)
+            self.assertEqual(audit["visible_text_native_ratio"], 1.0, audit)
+            self.assertEqual(audit["scene_node_coverage"], 1.0, audit)
             self.assertIn(1.5, artifact.manifest["stroke_widths"])
             self.assertIn("#201b19", artifact.manifest["text_colors"])
             self.assertIn("rtl-title", artifact.manifest["rtl_text_nodes"])
@@ -92,6 +104,95 @@ class NativeRendererTests(unittest.TestCase):
             report = inspect_rendered_docx(FAILED_DOCX, Path(directory))
         self.assertFalse(report["accepted"])
         self.assertIn("R_NONBLANK", report["failed_gates"])
+
+    def test_full_page_reference_image_is_detected_from_saved_docx_package(self):
+        scene = validate_scene_graph(
+            {
+                "version": "scene-graph.v1",
+                "page": {
+                    "width": 297,
+                    "height": 210,
+                    "orientation": "landscape",
+                },
+                "nodes": [
+                    {
+                        "id": "flattened-page",
+                        "type": "image",
+                        "bbox": [0.0, 0.0, 1.0, 1.0],
+                        "crop": [0.0, 0.0, 1.0, 1.0],
+                        "content_ref": "reference",
+                        "raster_justification": "source_artwork",
+                        "z": 1,
+                        "editable": True,
+                        "style": {
+                            "fill": None,
+                            "stroke": None,
+                            "stroke_width": 0,
+                            "corner_radius": 0,
+                            "opacity": 1,
+                        },
+                    }
+                ],
+                "constraints": [],
+            }
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            reference = workspace / "reference.jpg"
+            self._reference(reference)
+            artifact = render_scene(scene, reference, workspace)
+
+        audit = artifact.manifest["package_audit"]
+        self.assertTrue(audit["source_reference_embedded"], audit)
+        self.assertGreaterEqual(audit["largest_unjustified_raster_ratio"], 0.95)
+        self.assertGreaterEqual(audit["total_unjustified_raster_ratio"], 0.95)
+
+    def test_raster_tiles_cannot_evade_full_page_detection(self):
+        nodes = []
+        for index, (x, y) in enumerate(
+            ((0.0, 0.0), (0.5, 0.0), (0.0, 0.5), (0.5, 0.5))
+        ):
+            nodes.append(
+                {
+                    "id": "tile-%d" % index,
+                    "type": "image",
+                    "bbox": [x, y, 0.5, 0.5],
+                    "crop": [x, y, 0.5, 0.5],
+                    "content_ref": "reference",
+                    "raster_justification": "source_artwork",
+                    "z": index,
+                    "editable": True,
+                    "style": {
+                        "fill": None,
+                        "stroke": None,
+                        "stroke_width": 0,
+                        "corner_radius": 0,
+                        "opacity": 1,
+                    },
+                }
+            )
+        scene = validate_scene_graph(
+            {
+                "version": "scene-graph.v1",
+                "page": {
+                    "width": 297,
+                    "height": 210,
+                    "orientation": "landscape",
+                },
+                "nodes": nodes,
+                "constraints": [],
+            }
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            reference = workspace / "reference.jpg"
+            self._reference(reference)
+            artifact = render_scene(scene, reference, workspace)
+
+        audit = artifact.manifest["package_audit"]
+        self.assertTrue(audit["raster_tiling_detected"], audit)
+        self.assertEqual(audit["unjustified_raster_objects"], 4, audit)
+        self.assertGreaterEqual(audit["total_unjustified_raster_ratio"], 0.99)
 
     def test_container_boundary_returns_fresh_render_bundle(self):
         scene_bytes = SCENE_PATH.read_bytes()
@@ -145,6 +246,40 @@ class NativeRendererTests(unittest.TestCase):
                     )
         self.assertTrue(raised.exception.preview_bytes.startswith(b"\xff\xd8\xff"))
         self.assertLessEqual(len(raised.exception.preview_bytes), 64 * 1024)
+
+    def test_inconclusive_editability_uses_validation_incomplete_status(self):
+        scene_bytes = SCENE_PATH.read_bytes()
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / "reference.jpg"
+            self._reference(reference)
+            with patch(
+                "container.app.server.validate_fidelity",
+                return_value={
+                    "status": "VALIDATION_INCOMPLETE",
+                    "gates": {
+                        "G_PACKAGE_MEDIA_AUDIT": False,
+                        "S_EDITABILITY": False,
+                    },
+                    "findings": [
+                        {
+                            "gate": "G_PACKAGE_MEDIA_AUDIT",
+                            "measured": {"audit_complete": False},
+                            "required": {"audit_complete": True},
+                            "node_ids": [],
+                        }
+                    ],
+                    "correction_hints": [],
+                },
+            ):
+                with self.assertRaises(FidelityValidationError) as raised:
+                    render_request(
+                        scene_bytes,
+                        reference.name,
+                        reference.read_bytes(),
+                        Path(directory),
+                    )
+
+        self.assertEqual(raised.exception.code, "VALIDATION_INCOMPLETE")
 
     def test_container_boundary_rejects_oversized_reference(self):
         with tempfile.TemporaryDirectory() as directory:

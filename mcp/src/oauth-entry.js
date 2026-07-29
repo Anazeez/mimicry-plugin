@@ -3,10 +3,12 @@ import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import app, {
   ArtifactMimicryMCP,
   ArtifactMimicryMCPV2,
+  ArtifactMimicryMCPV3,
   ArtifactRenderWorkflow,
   ArtifactRendererContainer,
   ArtifactRendererContainerV2,
   ArtifactRendererContainerV3,
+  ArtifactRendererContainerV4,
   ArtifactStore,
 } from "./index.js";
 import { createProtectedApi, createPublicApi } from "./access.js";
@@ -17,7 +19,7 @@ import {
 
 const mcpHandler = {
   fetch(request, env, ctx) {
-    return ArtifactMimicryMCPV2.serve("/mcp").fetch(request, env, ctx);
+    return ArtifactMimicryMCPV3.serve("/mcp").fetch(request, env, ctx);
   },
 };
 
@@ -27,10 +29,12 @@ const publicApi = createPublicApi({ app });
 export {
   ArtifactMimicryMCP,
   ArtifactMimicryMCPV2,
+  ArtifactMimicryMCPV3,
   ArtifactRenderWorkflow,
   ArtifactRendererContainer,
   ArtifactRendererContainerV2,
   ArtifactRendererContainerV3,
+  ArtifactRendererContainerV4,
   ArtifactStore
 };
 

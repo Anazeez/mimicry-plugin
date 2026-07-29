@@ -139,6 +139,16 @@ const compactValidationReport = (report) => {
     version: report.version,
     gates: report.gates || {},
     metrics: scalarMetrics,
+    editability:
+      report.editability && typeof report.editability === "object"
+        ? Object.fromEntries(
+            Object.entries(report.editability).filter(
+              ([, value]) =>
+                ["number", "string", "boolean"].includes(typeof value) ||
+                value === null,
+            ),
+          )
+        : {},
     findings: Array.isArray(report.findings) ? report.findings.slice(0, 24) : [],
   };
 };
@@ -189,6 +199,7 @@ const runArtifactJob = async (
       download_url: `${env.PUBLIC_BASE_URL}/artifacts/${artifactId}/${encodeURIComponent(outputFilename)}`,
       expires_at: new Date(expiresAt).toISOString(),
       validation: report.gates,
+      validation_report: compactValidationReport(report),
     };
     await writeArtifactJobForEnv(env, jobId, result);
     return result;
@@ -282,6 +293,7 @@ export class ArtifactRendererContainer extends Container {
 // this deployment instead of reusing a pre-deployment container instance.
 export class ArtifactRendererContainerV2 extends ArtifactRendererContainer {}
 export class ArtifactRendererContainerV3 extends ArtifactRendererContainer {}
+export class ArtifactRendererContainerV4 extends ArtifactRendererContainer {}
 
 export class ArtifactRenderWorkflow extends WorkflowEntrypoint {
   async run(event, step) {
@@ -425,7 +437,8 @@ export class ArtifactMimicryMCP extends McpAgent {
           filename: z.string().optional(),
           download_url: z.string().url().optional(),
           expires_at: z.string().optional(),
-          validation: z.record(z.string(), z.boolean()).optional()
+          validation: z.record(z.string(), z.boolean()).optional(),
+          validation_report: z.unknown().optional()
         },
         annotations: {
           readOnlyHint: false,
@@ -522,7 +535,8 @@ export class ArtifactMimicryMCP extends McpAgent {
           filename: z.string().optional(),
           download_url: z.string().url().optional(),
           expires_at: z.string().optional(),
-          validation: z.record(z.string(), z.boolean()).optional()
+          validation: z.record(z.string(), z.boolean()).optional(),
+          validation_report: z.unknown().optional()
         },
         annotations: {
           readOnlyHint: true,
@@ -538,6 +552,7 @@ export class ArtifactMimicryMCP extends McpAgent {
 // A new Durable Object class deliberately rotates existing MCP sessions after
 // a tool-contract update. OAuth clients and the public MCP URL stay unchanged.
 export class ArtifactMimicryMCPV2 extends ArtifactMimicryMCP {}
+export class ArtifactMimicryMCPV3 extends ArtifactMimicryMCP {}
 
 export default {
   async fetch(request, env, ctx) {

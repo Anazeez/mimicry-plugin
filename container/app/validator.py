@@ -307,13 +307,71 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
         "reference_ocr_words": _ocr_word_count(reference_path),
         "rendered_ocr_words": _ocr_word_count(rendered_path),
     }
+    audit = manifest.get("package_audit")
+    audit_complete = bool(
+        isinstance(audit, dict)
+        and audit.get("audit_complete") is True
+        and audit.get("package_integrity") is not False
+    )
+    audit = audit if isinstance(audit, dict) else {}
+    audit_metric_names = (
+        "embedded_image_objects",
+        "native_shape_objects",
+        "native_text_regions",
+        "source_text_regions",
+        "visible_text_native_ratio",
+        "scene_node_coverage",
+        "native_visible_area_ratio",
+        "largest_unjustified_raster_ratio",
+        "total_unjustified_raster_ratio",
+        "unjustified_raster_objects",
+        "source_reference_embedded",
+        "raster_tiling_detected",
+        "monolithic_flattened_object",
+    )
+    metrics.update({name: audit.get(name) for name in audit_metric_names})
+
+    editability_gates = {
+        "G_PACKAGE_MEDIA_AUDIT": audit_complete,
+        "G_NO_SOURCE_REFERENCE_EMBED": (
+            audit_complete and audit.get("source_reference_embedded") is False
+        ),
+        "G_NO_FULL_PAGE_RASTER": (
+            audit_complete
+            and float(audit.get("largest_unjustified_raster_ratio", 1))
+            <= thresholds["largest_unjustified_raster_ratio_max"]
+            and float(audit.get("total_unjustified_raster_ratio", 1))
+            <= thresholds["total_unjustified_raster_ratio_max"]
+            and audit.get("raster_tiling_detected") is False
+        ),
+        "G_VISIBLE_TEXT_NATIVE": (
+            audit_complete
+            and float(audit.get("visible_text_native_ratio", 0))
+            >= thresholds["visible_text_native_ratio_min"]
+        ),
+        "G_SCENE_NODE_COVERAGE": (
+            audit_complete
+            and float(audit.get("scene_node_coverage", 0))
+            >= thresholds["scene_node_coverage_min"]
+        ),
+        "G_NATIVE_OBJECT_RATIO": (
+            audit_complete
+            and float(audit.get("native_visible_area_ratio", 0))
+            >= thresholds["native_visible_area_ratio_min"]
+        ),
+        "G_OBJECT_EDITABILITY": (
+            audit_complete
+            and audit.get("monolithic_flattened_object") is False
+        ),
+        "G_RASTER_JUSTIFICATION": (
+            audit_complete
+            and int(audit.get("unjustified_raster_objects", 1)) == 0
+        ),
+    }
+    editability_gates["S_EDITABILITY"] = all(editability_gates.values())
 
     gates = {
-        "S_EDITABILITY": (
-            int(manifest.get("full_page_image_count", 0)) == 0
-            and int(manifest.get("native_shape_count", 0)) >= len(expected)
-            and set(expected).issubset(actual)
-        ),
+        **editability_gates,
         "R_NONBLANK": metrics["nonwhite_ratio"] >= thresholds["nonwhite_ratio_min"],
         "R_SINGLE_PAGE": int(manifest.get("page_count", 0)) == 1,
         "G_ALIGNMENT": max_geometry_error <= thresholds["bbox_max_error"],
@@ -329,7 +387,101 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
     }
 
     details = {
-        "S_EDITABILITY": (0, 1, list(expected)),
+        "G_PACKAGE_MEDIA_AUDIT": {
+            "measured": {
+                "audit_complete": audit_complete,
+                "package_integrity": audit.get("package_integrity"),
+                "audit_error": audit.get("audit_error"),
+            },
+            "required": {"audit_complete": True, "package_integrity": True},
+            "node_ids": [],
+        },
+        "G_NO_SOURCE_REFERENCE_EMBED": {
+            "measured": {
+                "source_reference_embedded": audit.get("source_reference_embedded")
+            },
+            "required": {"source_reference_embedded": False},
+            "node_ids": [],
+        },
+        "G_NO_FULL_PAGE_RASTER": {
+            "measured": {
+                "largest_unjustified_raster_ratio": audit.get(
+                    "largest_unjustified_raster_ratio"
+                ),
+                "total_unjustified_raster_ratio": audit.get(
+                    "total_unjustified_raster_ratio"
+                ),
+                "raster_tiling_detected": audit.get("raster_tiling_detected"),
+            },
+            "required": {
+                "maximum_largest_ratio": thresholds[
+                    "largest_unjustified_raster_ratio_max"
+                ],
+                "maximum_total_ratio": thresholds[
+                    "total_unjustified_raster_ratio_max"
+                ],
+                "raster_tiling_detected": False,
+            },
+            "node_ids": [],
+        },
+        "G_VISIBLE_TEXT_NATIVE": {
+            "measured": {
+                "native_text_regions": audit.get("native_text_regions"),
+                "source_text_regions": audit.get("source_text_regions"),
+                "visible_text_native_ratio": audit.get("visible_text_native_ratio"),
+            },
+            "required": {
+                "minimum_ratio": thresholds["visible_text_native_ratio_min"]
+            },
+            "node_ids": [],
+        },
+        "G_SCENE_NODE_COVERAGE": {
+            "measured": {"scene_node_coverage": audit.get("scene_node_coverage")},
+            "required": {
+                "minimum_ratio": thresholds["scene_node_coverage_min"]
+            },
+            "node_ids": [],
+        },
+        "G_NATIVE_OBJECT_RATIO": {
+            "measured": {
+                "native_visible_area_ratio": audit.get("native_visible_area_ratio")
+            },
+            "required": {
+                "minimum_ratio": thresholds["native_visible_area_ratio_min"]
+            },
+            "node_ids": [],
+        },
+        "G_OBJECT_EDITABILITY": {
+            "measured": {
+                "monolithic_flattened_object": audit.get(
+                    "monolithic_flattened_object"
+                )
+            },
+            "required": {"monolithic_flattened_object": False},
+            "node_ids": [],
+        },
+        "G_RASTER_JUSTIFICATION": {
+            "measured": {
+                "unjustified_raster_objects": audit.get(
+                    "unjustified_raster_objects"
+                )
+            },
+            "required": {"unjustified_raster_objects": 0},
+            "node_ids": [],
+        },
+        "S_EDITABILITY": {
+            "measured": {
+                "passed_editability_gates": sum(
+                    bool(value)
+                    for name, value in editability_gates.items()
+                    if name != "S_EDITABILITY"
+                )
+            },
+            "required": {
+                "required_editability_gates": len(editability_gates) - 1
+            },
+            "node_ids": list(expected),
+        },
         "R_NONBLANK": (
             metrics["nonwhite_ratio"],
             thresholds["nonwhite_ratio_min"],
@@ -383,21 +535,46 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
     findings = []
     for gate in config["critical_gates"]:
         if not gates[gate]:
-            observed, threshold, node_ids = details[gate]
+            detail = details[gate]
+            if isinstance(detail, tuple):
+                observed, threshold, node_ids = detail
+                measured = {"value": observed}
+                required = {"threshold": threshold}
+            else:
+                measured = detail["measured"]
+                required = detail["required"]
+                node_ids = detail["node_ids"]
             findings.append(
                 {
                     "gate": gate,
-                    "expected": threshold,
-                    "observed": observed,
+                    "expected": required,
+                    "observed": measured,
+                    "required": required,
+                    "measured": measured,
                     "node_ids": node_ids,
                 }
             )
 
+    if all(gates[gate] for gate in config["critical_gates"]):
+        status = "PASS"
+    elif not audit_complete:
+        status = "VALIDATION_INCOMPLETE"
+    elif not editability_gates["S_EDITABILITY"]:
+        status = "EDITABILITY_FAILED"
+    else:
+        status = "FIDELITY_FAILED"
     return {
-        "status": "PASS" if all(gates[gate] for gate in config["critical_gates"]) else "FAIL",
+        "status": status,
         "version": config["version"],
         "gates": gates,
         "metrics": metrics,
+        "editability": {
+            "passed": editability_gates["S_EDITABILITY"],
+            **{
+                name: audit.get(name)
+                for name in audit_metric_names
+            },
+        },
         "findings": findings,
         "correction_hints": [
             {

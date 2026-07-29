@@ -24,13 +24,21 @@
     {
       "tag": "v5",
       "new_sqlite_classes": ["ArtifactRendererContainerV3"]
+    },
+    {
+      "tag": "v6",
+      "new_sqlite_classes": ["ArtifactRendererContainerV4"]
+    },
+    {
+      "tag": "v7",
+      "new_sqlite_classes": ["ArtifactMimicryMCPV3"]
     }
   ],
   "durable_objects": {
     "bindings": [
       {
         "name": "MCP_OBJECT",
-        "class_name": "ArtifactMimicryMCPV2"
+        "class_name": "ArtifactMimicryMCPV3"
       },
       {
         "name": "ARTIFACT_STORE",
@@ -38,13 +46,13 @@
       },
       {
         "name": "RENDERER",
-        "class_name": "ArtifactRendererContainerV3"
+        "class_name": "ArtifactRendererContainerV4"
       }
     ]
   },
   "containers": [
     {
-      "class_name": "ArtifactRendererContainerV3",
+      "class_name": "ArtifactRendererContainerV4",
       "image": "../container/Dockerfile",
       "instance_type": "standard-1",
       "max_instances": 1

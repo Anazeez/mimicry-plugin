@@ -18,6 +18,8 @@ import uuid
 
 from PIL import Image
 
+from .ooxml_audit import audit_docx_package
+
 try:
     import uno
 except ImportError as error:  # pragma: no cover - exercised by the container
@@ -511,6 +513,12 @@ def render_scene(scene, reference_path, workspace):
             reopened.close(True)
 
     _rasterize(pdf_path, png_path)
+    package_audit = audit_docx_package(
+        docx_path,
+        scene,
+        actual_nodes,
+        reference_path,
+    )
     manifest = {
         "page_count": _page_count(pdf_path),
         "native_shape_count": len([node for node in scene["nodes"] if node["type"] != "group"]),
@@ -541,6 +549,7 @@ def render_scene(scene, reference_path, workspace):
         ],
         "actual_nodes": actual_nodes,
         "nonwhite_ratio": _nonwhite_ratio(png_path),
+        "package_audit": package_audit,
     }
     return RenderedArtifact(docx_path, pdf_path, png_path, manifest)
 

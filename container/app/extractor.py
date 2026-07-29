@@ -392,6 +392,7 @@ def _graphic_nodes(path, image, background, text_nodes, vertical=None, horizonta
                 "bbox": crop,
                 "crop": crop,
                 "content_ref": "reference",
+                "raster_justification": "source_artwork",
                 "z": 20,
                 "editable": True,
                 "style": {

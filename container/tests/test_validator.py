@@ -69,6 +69,22 @@ class FidelityValidatorTests(unittest.TestCase):
             "native_shape_count": 2,
             "image_object_count": 0,
             "full_page_image_count": 0,
+            "package_audit": {
+                "audit_complete": True,
+                "embedded_image_objects": 0,
+                "native_shape_objects": 2,
+                "native_text_regions": 1,
+                "source_text_regions": 1,
+                "visible_text_native_ratio": 1.0,
+                "scene_node_coverage": 1.0,
+                "native_visible_area_ratio": 1.0,
+                "largest_unjustified_raster_ratio": 0.0,
+                "total_unjustified_raster_ratio": 0.0,
+                "source_reference_embedded": False,
+                "raster_tiling_detected": False,
+                "monolithic_flattened_object": False,
+                "unjustified_raster_objects": 0,
+            },
             "actual_nodes": [
                 {"id": node["id"], "bbox": node["bbox"], "shape_type": node["type"]}
                 for node in self.scene["nodes"]
@@ -128,10 +144,93 @@ class FidelityValidatorTests(unittest.TestCase):
     def test_flattened_page_fails_editability(self):
         manifest = json.loads(json.dumps(self.manifest))
         manifest["full_page_image_count"] = 1
+        manifest["package_audit"].update(
+            {
+                "embedded_image_objects": 1,
+                "native_shape_objects": 0,
+                "native_text_regions": 0,
+                "visible_text_native_ratio": 0.0,
+                "scene_node_coverage": 0.0,
+                "native_visible_area_ratio": 0.0,
+                "largest_unjustified_raster_ratio": 0.97,
+                "total_unjustified_raster_ratio": 0.97,
+                "source_reference_embedded": True,
+            }
+        )
         report = validate_fidelity(
             self.reference, self.good, self.scene, manifest
         )
         self.assertFalse(report["gates"]["S_EDITABILITY"], report)
+        self.assertEqual(report["status"], "EDITABILITY_FAILED", report)
+        self.assertEqual(
+            report["metrics"]["largest_unjustified_raster_ratio"], 0.97
+        )
+
+    def test_missing_package_audit_fails_closed_as_incomplete(self):
+        manifest = json.loads(json.dumps(self.manifest))
+        del manifest["package_audit"]
+
+        report = validate_fidelity(
+            self.reference, self.good, self.scene, manifest
+        )
+
+        self.assertEqual(report["status"], "VALIDATION_INCOMPLETE", report)
+        self.assertFalse(report["gates"]["G_PACKAGE_MEDIA_AUDIT"], report)
+        self.assertFalse(report["gates"]["S_EDITABILITY"], report)
+
+    def test_tiled_rasters_fail_total_unjustified_coverage(self):
+        manifest = json.loads(json.dumps(self.manifest))
+        manifest["package_audit"].update(
+            {
+                "embedded_image_objects": 16,
+                "native_shape_objects": 0,
+                "native_text_regions": 1,
+                "visible_text_native_ratio": 0.03,
+                "scene_node_coverage": 0.05,
+                "native_visible_area_ratio": 0.04,
+                "largest_unjustified_raster_ratio": 0.09,
+                "total_unjustified_raster_ratio": 0.96,
+            }
+        )
+
+        report = validate_fidelity(
+            self.reference, self.good, self.scene, manifest
+        )
+
+        self.assertEqual(report["status"], "EDITABILITY_FAILED", report)
+        self.assertFalse(report["gates"]["G_NO_FULL_PAGE_RASTER"], report)
+        finding = next(
+            item
+            for item in report["findings"]
+            if item["gate"] == "G_NO_FULL_PAGE_RASTER"
+        )
+        self.assertEqual(finding["measured"]["total_unjustified_raster_ratio"], 0.96)
+        self.assertEqual(finding["required"]["maximum_total_ratio"], 0.15)
+
+    def test_hidden_ocr_overlay_does_not_make_visible_text_native(self):
+        manifest = json.loads(json.dumps(self.manifest))
+        manifest["package_audit"].update(
+            {
+                "embedded_image_objects": 1,
+                "native_shape_objects": 1,
+                "native_text_regions": 31,
+                "source_text_regions": 31,
+                "visible_text_native_ratio": 0.0,
+                "scene_node_coverage": 0.1,
+                "native_visible_area_ratio": 0.05,
+                "largest_unjustified_raster_ratio": 0.9,
+                "total_unjustified_raster_ratio": 0.9,
+            }
+        )
+
+        report = validate_fidelity(
+            self.reference, self.good, self.scene, manifest
+        )
+
+        self.assertIn("G_VISIBLE_TEXT_NATIVE", report["gates"], report)
+        self.assertIn("G_NATIVE_OBJECT_RATIO", report["gates"], report)
+        self.assertFalse(report["gates"]["G_VISIBLE_TEXT_NATIVE"], report)
+        self.assertFalse(report["gates"]["G_NATIVE_OBJECT_RATIO"], report)
 
 
 if __name__ == "__main__":
