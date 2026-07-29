@@ -333,13 +333,17 @@ export class ArtifactMimicryMCP extends McpAgent {
         filename
       }) => {
         try {
-          if (
-            expectations &&
-            typeof expectations === "object" &&
-            typeof expectations.job_id === "string"
-          ) {
+          const compatibilityJobId =
+            task && typeof task === "object" && typeof task.job_id === "string"
+              ? task.job_id
+              : expectations &&
+                  typeof expectations === "object" &&
+                  typeof expectations.job_id === "string"
+                ? expectations.job_id
+                : null;
+          if (compatibilityJobId) {
             return this.artifactJobResponse(
-              z.string().uuid().parse(expectations.job_id),
+              z.string().uuid().parse(compatibilityJobId),
               true
             );
           }

@@ -19,6 +19,13 @@ export const mimicryHintsInputSchema = z
       .optional()
       .describe(
         "Optional editable text replacements keyed by measured scene node ID."
+      ),
+    job_id: z
+      .string()
+      .uuid()
+      .optional()
+      .describe(
+        "Backward-compatible polling field for connector sessions that have not refreshed to expose await_result."
       )
   })
   .strip()

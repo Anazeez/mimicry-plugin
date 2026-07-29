@@ -48,3 +48,11 @@ test("maps the installed legacy task contract into non-geometric hints", () => {
     { instructions: "Preserve the RTL text." }
   );
 });
+
+test("preserves the cached-connector polling job id", () => {
+  const jobId = "e95bfe33-f1d3-4a4c-a943-bb1d42503acc";
+  assert.equal(
+    resolveMimicryHints({ task: { job_id: jobId } }).job_id,
+    jobId
+  );
+});
