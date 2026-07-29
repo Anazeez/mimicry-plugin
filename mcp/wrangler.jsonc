@@ -12,13 +12,17 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["ArtifactRendererContainer"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["ArtifactMimicryMCPV2"]
     }
   ],
   "durable_objects": {
     "bindings": [
       {
         "name": "MCP_OBJECT",
-        "class_name": "ArtifactMimicryMCP"
+        "class_name": "ArtifactMimicryMCPV2"
       },
       {
         "name": "ARTIFACT_STORE",

@@ -428,6 +428,10 @@ export class ArtifactMimicryMCP extends McpAgent {
   }
 }
 
+// A new Durable Object class deliberately rotates existing MCP sessions after
+// a tool-contract update. OAuth clients and the public MCP URL stay unchanged.
+export class ArtifactMimicryMCPV2 extends ArtifactMimicryMCP {}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

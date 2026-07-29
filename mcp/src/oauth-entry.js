@@ -2,6 +2,7 @@ import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 
 import app, {
   ArtifactMimicryMCP,
+  ArtifactMimicryMCPV2,
   ArtifactRendererContainer,
   ArtifactStore,
 } from "./index.js";
@@ -13,14 +14,19 @@ import {
 
 const mcpHandler = {
   fetch(request, env, ctx) {
-    return ArtifactMimicryMCP.serve("/mcp").fetch(request, env, ctx);
+    return ArtifactMimicryMCPV2.serve("/mcp").fetch(request, env, ctx);
   },
 };
 
 const protectedApi = createProtectedApi({ mcpHandler });
 const publicApi = createPublicApi({ app });
 
-export { ArtifactMimicryMCP, ArtifactRendererContainer, ArtifactStore };
+export {
+  ArtifactMimicryMCP,
+  ArtifactMimicryMCPV2,
+  ArtifactRendererContainer,
+  ArtifactStore
+};
 
 export default new OAuthProvider({
   ...OAUTH_PROVIDER_OPTIONS,
