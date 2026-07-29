@@ -143,7 +143,8 @@ class NativeRendererTests(unittest.TestCase):
                         reference.read_bytes(),
                         Path(directory),
                     )
-        self.assertTrue(raised.exception.preview_bytes.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertTrue(raised.exception.preview_bytes.startswith(b"\xff\xd8\xff"))
+        self.assertLessEqual(len(raised.exception.preview_bytes), 64 * 1024)
 
     def test_container_boundary_rejects_oversized_reference(self):
         with tempfile.TemporaryDirectory() as directory:

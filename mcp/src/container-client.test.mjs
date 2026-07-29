@@ -77,14 +77,15 @@ test("returns the exact independent validation report on fail-closed response", 
 });
 
 test("retains a failed render preview for owner diagnostics", async () => {
-  const preview = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  const preview = new Uint8Array([0xff, 0xd8, 0xff]);
   const renderer = {
     async fetch() {
       return Response.json(
         {
           code: "FIDELITY_FAILED",
           validation: { status: "FAIL", findings: [] },
-          debug_preview_base64: Buffer.from(preview).toString("base64")
+          debug_preview_base64: Buffer.from(preview).toString("base64"),
+          debug_preview_mime: "image/jpeg"
         },
         { status: 422 }
       );
@@ -94,6 +95,7 @@ test("retains a failed render preview for owner diagnostics", async () => {
     renderInContainer({ renderer, scene, reference }),
     (error) => {
       assert.deepEqual(Array.from(error.debugPreview), Array.from(preview));
+      assert.equal(error.debugPreviewMime, "image/jpeg");
       return true;
     }
   );

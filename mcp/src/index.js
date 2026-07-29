@@ -191,7 +191,7 @@ const runArtifactJob = async (
       ...(error instanceof ContainerRenderError && error.debugPreviewBase64
         ? {
             debug_preview_data_url:
-              `data:image/png;base64,${error.debugPreviewBase64}`,
+              `data:${error.debugPreviewMime || "image/jpeg"};base64,${error.debugPreviewBase64}`,
           }
         : {}),
     };

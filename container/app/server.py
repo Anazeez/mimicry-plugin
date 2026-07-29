@@ -11,6 +11,8 @@ from pathlib import Path
 import tempfile
 import zipfile
 
+from PIL import Image
+
 from .renderer import RenderError, render_scene
 from .schemas import SceneGraphError, validate_scene_graph
 from .validator import validate_fidelity
@@ -19,6 +21,25 @@ from .validator import validate_fidelity
 MAX_REFERENCE_BYTES = 20 * 1024 * 1024
 MAX_SCENE_BYTES = 2 * 1024 * 1024
 MAX_REQUEST_BYTES = MAX_REFERENCE_BYTES + MAX_SCENE_BYTES + 1024 * 1024
+MAX_DEBUG_PREVIEW_BYTES = 64 * 1024
+
+
+def _diagnostic_preview(path):
+    with Image.open(path) as source:
+        image = source.convert("RGB")
+    for maximum, quality in ((720, 60), (540, 45), (360, 30), (240, 20)):
+        candidate = image.copy()
+        candidate.thumbnail((maximum, maximum))
+        output = io.BytesIO()
+        candidate.save(output, "JPEG", quality=quality, optimize=True)
+        payload = output.getvalue()
+        if len(payload) <= MAX_DEBUG_PREVIEW_BYTES:
+            return payload
+    raise RenderRequestError(
+        "DEBUG_PREVIEW_TOO_LARGE",
+        "diagnostic preview could not be bounded",
+        500,
+    )
 
 
 class RenderRequestError(ValueError):
@@ -65,7 +86,7 @@ def render_request(scene_bytes, reference_name, reference_bytes, workspace):
         reference_path, artifact.png_path, scene, artifact.manifest
     )
     if report["status"] != "PASS":
-        raise FidelityValidationError(report, artifact.png_path.read_bytes())
+        raise FidelityValidationError(report, _diagnostic_preview(artifact.png_path))
     manifest = dict(artifact.manifest)
     manifest["fidelity"] = report
 
@@ -161,6 +182,7 @@ class RenderHandler(BaseHTTPRequestHandler):
                 response["debug_preview_base64"] = base64.b64encode(
                     error.preview_bytes
                 ).decode("ascii")
+                response["debug_preview_mime"] = "image/jpeg"
             self._json(
                 error.status,
                 response,

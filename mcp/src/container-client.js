@@ -16,13 +16,15 @@ export class ContainerRenderError extends Error {
     message,
     report = null,
     code = "RENDER_FAILED",
-    debugPreviewBase64 = null
+    debugPreviewBase64 = null,
+    debugPreviewMime = null
   ) {
     super(message);
     this.name = "ContainerRenderError";
     this.code = code;
     this.report = report;
     this.debugPreviewBase64 = debugPreviewBase64;
+    this.debugPreviewMime = debugPreviewMime;
     this.debugPreview =
       typeof debugPreviewBase64 === "string" && debugPreviewBase64
         ? Uint8Array.from(atob(debugPreviewBase64), (character) =>
@@ -102,7 +104,8 @@ export async function renderInContainer({
       payload.message || "Artifact Mimicry validation failed. No editable artifact was generated.",
       payload.validation || null,
       payload.code || "RENDER_FAILED",
-      payload.debug_preview_base64 || null
+      payload.debug_preview_base64 || null,
+      payload.debug_preview_mime || null
     );
   }
   const declared = Number(response.headers.get("content-length") || 0);
