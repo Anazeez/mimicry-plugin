@@ -240,6 +240,7 @@ class DeterministicExtractorTests(unittest.TestCase):
             _text_width_units("2025 يونيو"),
             _text_width_units("2025"),
         )
+        self.assertLess(_text_width_units("اكتب هنا"), 4)
         self.assertEqual(
             _text_width_units("short\n2025 يونيو"),
             _text_width_units("2025 يونيو"),

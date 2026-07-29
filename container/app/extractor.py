@@ -221,7 +221,9 @@ def _line_width_units(value):
         if character.isspace():
             units += 0.32
         elif "\u0600" <= character <= "\u06ff":
-            units += 0.72
+            # Arabic joins into compact contextual forms; portable Office sans
+            # fonts average roughly 0.4 em per code point for ordinary words.
+            units += 0.42
         elif (
             "\u2e80" <= character <= "\u9fff"
             or "\uac00" <= character <= "\ud7af"
