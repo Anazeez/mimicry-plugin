@@ -308,6 +308,39 @@ test("normalizes equivalent x y width height geometry", async () => {
   assert.deepEqual(result.nodes[0].bbox, [0.1, 0.2, 0.5, 0.1]);
 });
 
+test("normalizes equivalent grid dimension fields", async () => {
+  const shorthandGraph = {
+    ...graph,
+    nodes: [
+      {
+        id: "grid",
+        type: "table",
+        bbox: [0.1, 0.2, 0.8, 0.6],
+        row_count: 3,
+        columnCount: 6,
+        style: {
+          fill: null,
+          stroke: "#EF9A74",
+          stroke_width: 1,
+          corner_radius: 0,
+          opacity: 1
+        }
+      }
+    ]
+  };
+  const ai = { async run() { return { response: JSON.stringify(shorthandGraph) }; } };
+  const result = await extractSceneGraph({
+    ai,
+    reference: {
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xdb]),
+      mimeType: "image/jpeg",
+      digest: "abc"
+    }
+  });
+  assert.equal(result.nodes[0].rows, 3);
+  assert.equal(result.nodes[0].columns, 6);
+});
+
 test("prefers OpenAI-style choices over an empty legacy response field", async () => {
   const ai = {
     async run() {

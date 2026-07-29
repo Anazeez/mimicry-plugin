@@ -422,6 +422,34 @@ const nodeBBox = (node, type) => {
   return type === "group" ? [0, 0, 1, 1] : node.bbox;
 };
 
+const positiveInteger = (...values) => {
+  for (const value of values) {
+    if (Array.isArray(value) && value.length > 0) return value.length;
+    const number = Number(value);
+    if (Number.isInteger(number) && number > 0) return number;
+  }
+  return undefined;
+};
+
+const gridDimensions = (node) => ({
+  rows: positiveInteger(
+    node.rows,
+    node.row_count,
+    node.rowCount,
+    node.grid?.rows,
+    Array.isArray(node.horizontal_lines) ? node.horizontal_lines.length + 1 : undefined
+  ),
+  columns: positiveInteger(
+    node.columns,
+    node.cols,
+    node.column_count,
+    node.col_count,
+    node.columnCount,
+    node.grid?.columns,
+    Array.isArray(node.vertical_lines) ? node.vertical_lines.length + 1 : undefined
+  )
+});
+
 const canonicalizeSceneNodeTypes = (scene) => ({
   ...scene,
   nodes: Array.isArray(scene?.nodes)
@@ -429,6 +457,7 @@ const canonicalizeSceneNodeTypes = (scene) => ({
         if (!node || typeof node.type !== "string") return node;
         const normalized = node.type.trim().toLowerCase().replace(/[\s-]+/g, "_");
         const type = canonicalNodeType(node, normalized);
+        const dimensions = type === "grid" ? gridDimensions(node) : {};
         return {
           ...node,
           z: Number.isInteger(node.z) ? node.z : index,
@@ -441,7 +470,9 @@ const canonicalizeSceneNodeTypes = (scene) => ({
             : {}),
           ...(type === "image"
             ? { content_ref: node.content_ref || `reference-region:${node.id || index}` }
-            : {})
+            : {}),
+          ...(dimensions.rows ? { rows: dimensions.rows } : {}),
+          ...(dimensions.columns ? { columns: dimensions.columns } : {})
         };
       })
     : scene?.nodes
