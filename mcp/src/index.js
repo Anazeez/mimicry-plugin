@@ -188,6 +188,12 @@ const runArtifactJob = async (
       ...(error instanceof ContainerRenderError && error.report
         ? { validation_report: error.report }
         : {}),
+      ...(error instanceof ContainerRenderError && error.debugPreviewBase64
+        ? {
+            debug_preview_data_url:
+              `data:image/png;base64,${error.debugPreviewBase64}`,
+          }
+        : {}),
     };
     await writeArtifactJobForEnv(env, jobId, result);
     return result;

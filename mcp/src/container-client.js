@@ -12,11 +12,23 @@ const CORRECTABLE_GATES = new Set([
 ]);
 
 export class ContainerRenderError extends Error {
-  constructor(message, report = null, code = "RENDER_FAILED") {
+  constructor(
+    message,
+    report = null,
+    code = "RENDER_FAILED",
+    debugPreviewBase64 = null
+  ) {
     super(message);
     this.name = "ContainerRenderError";
     this.code = code;
     this.report = report;
+    this.debugPreviewBase64 = debugPreviewBase64;
+    this.debugPreview =
+      typeof debugPreviewBase64 === "string" && debugPreviewBase64
+        ? Uint8Array.from(atob(debugPreviewBase64), (character) =>
+            character.charCodeAt(0)
+          )
+        : null;
     const findings = Array.isArray(report?.findings) ? report.findings : [];
     this.correctable =
       findings.length > 0 &&
@@ -89,7 +101,8 @@ export async function renderInContainer({
     throw new ContainerRenderError(
       payload.message || "Artifact Mimicry validation failed. No editable artifact was generated.",
       payload.validation || null,
-      payload.code || "RENDER_FAILED"
+      payload.code || "RENDER_FAILED",
+      payload.debug_preview_base64 || null
     );
   }
   const declared = Number(response.headers.get("content-length") || 0);

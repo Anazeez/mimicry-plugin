@@ -2,6 +2,7 @@
 
 from email.parser import BytesParser
 from email.policy import default
+import base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
@@ -28,13 +29,14 @@ class RenderRequestError(ValueError):
 
 
 class FidelityValidationError(RenderRequestError):
-    def __init__(self, report):
+    def __init__(self, report, preview_bytes):
         super().__init__(
             "FIDELITY_FAILED",
             "Generated DOCX failed independent fidelity validation",
             422,
         )
         self.report = report
+        self.preview_bytes = preview_bytes
 
 
 def render_request(scene_bytes, reference_name, reference_bytes, workspace):
@@ -63,7 +65,7 @@ def render_request(scene_bytes, reference_name, reference_bytes, workspace):
         reference_path, artifact.png_path, scene, artifact.manifest
     )
     if report["status"] != "PASS":
-        raise FidelityValidationError(report)
+        raise FidelityValidationError(report, artifact.png_path.read_bytes())
     manifest = dict(artifact.manifest)
     manifest["fidelity"] = report
 
@@ -156,6 +158,9 @@ class RenderHandler(BaseHTTPRequestHandler):
             }
             if isinstance(error, FidelityValidationError):
                 response["validation"] = error.report
+                response["debug_preview_base64"] = base64.b64encode(
+                    error.preview_bytes
+                ).decode("ascii")
             self._json(
                 error.status,
                 response,

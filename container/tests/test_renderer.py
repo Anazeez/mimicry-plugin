@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw
 
 from container.app.schemas import validate_scene_graph
 from container.app.renderer import _office_endpoint, render_scene, inspect_rendered_docx
-from container.app.server import RenderRequestError, render_request
+from container.app.server import FidelityValidationError, RenderRequestError, render_request
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -121,6 +121,29 @@ class NativeRendererTests(unittest.TestCase):
         self.assertEqual(manifest["page_count"], 1)
         self.assertGreater(manifest["nonwhite_ratio"], 0.05)
         self.assertEqual(manifest["fidelity"]["status"], "PASS")
+
+    def test_failed_fidelity_retains_only_a_diagnostic_preview(self):
+        scene_bytes = SCENE_PATH.read_bytes()
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / "reference.jpg"
+            self._reference(reference)
+            with patch(
+                "container.app.server.validate_fidelity",
+                return_value={
+                    "status": "FAIL",
+                    "gates": {"V_STRUCTURE": False},
+                    "findings": [{"gate": "V_STRUCTURE", "node_ids": []}],
+                    "correction_hints": [],
+                },
+            ):
+                with self.assertRaises(FidelityValidationError) as raised:
+                    render_request(
+                        scene_bytes,
+                        reference.name,
+                        reference.read_bytes(),
+                        Path(directory),
+                    )
+        self.assertTrue(raised.exception.preview_bytes.startswith(b"\x89PNG\r\n\x1a\n"))
 
     def test_container_boundary_rejects_oversized_reference(self):
         with tempfile.TemporaryDirectory() as directory:
