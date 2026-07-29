@@ -429,6 +429,7 @@ const canonicalNodeType = (node, normalized) => {
   ) {
     return "rectangle";
   }
+  if (!normalized) return "group";
   return normalized;
 };
 
@@ -528,16 +529,23 @@ const gridDimensions = (node) => ({
 const canonicalizeSceneNodeTypes = (scene) => {
   const nodes = Array.isArray(scene?.nodes)
     ? scene.nodes.map((node, index) => {
-        if (!node || typeof node.type !== "string") return node;
-        const normalized = node.type.trim().toLowerCase().replace(/[\s-]+/g, "_");
+        if (!node || typeof node !== "object" || Array.isArray(node)) return node;
+        const normalized =
+          typeof node.type === "string"
+            ? node.type.trim().toLowerCase().replace(/[\s-]+/g, "_")
+            : "";
         const type = canonicalNodeType(node, normalized);
         const dimensions = type === "grid" ? gridDimensions(node) : {};
+        const { parent: rawParent, ...sourceNode } = node;
         return {
-          ...node,
+          ...sourceNode,
           z: Number.isInteger(node.z) ? node.z : index,
           editable: true,
           type,
           bbox: nodeBBox(node, type),
+          ...(typeof rawParent === "string" && rawParent
+            ? { parent: rawParent }
+            : {}),
           ...(type === "text" ? { text: canonicalText(node, type) } : {}),
           ...(type !== "text" && type !== "group"
             ? { style: canonicalStyle(node, type) }

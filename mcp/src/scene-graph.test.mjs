@@ -351,6 +351,25 @@ test("normalizes a geometry-free document wrapper to a full-page group", async (
   assert.deepEqual(result.nodes[0].bbox, [0, 0, 1, 1]);
 });
 
+test("infers a missing root type and removes a null parent", async () => {
+  const shorthandGraph = {
+    ...graph,
+    nodes: [{ id: "root", parent: null }]
+  };
+  const ai = { async run() { return { response: JSON.stringify(shorthandGraph) }; } };
+  const result = await extractSceneGraph({
+    ai,
+    reference: {
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xdb]),
+      mimeType: "image/jpeg",
+      digest: "abc"
+    }
+  });
+  assert.equal(result.nodes[0].type, "group");
+  assert.deepEqual(result.nodes[0].bbox, [0, 0, 1, 1]);
+  assert.equal("parent" in result.nodes[0], false);
+});
+
 test("normalizes equivalent x y width height geometry", async () => {
   const { bbox: _bbox, ...node } = graph.nodes[0];
   const shorthandGraph = {
