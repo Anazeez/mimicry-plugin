@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 import zipfile
 
@@ -23,6 +24,13 @@ MAX_REFERENCE_BYTES = 20 * 1024 * 1024
 MAX_SCENE_BYTES = 2 * 1024 * 1024
 MAX_REQUEST_BYTES = MAX_REFERENCE_BYTES + MAX_SCENE_BYTES + 1024 * 1024
 MAX_DEBUG_PREVIEW_BYTES = 64 * 1024
+
+
+def _safe_diagnostic(error):
+    value = "%s: %s" % (type(error).__name__, error)
+    value = re.sub(r"(?:https?|file)://\S+", "[location]", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    return value[:240]
 
 
 def _diagnostic_preview(path):
@@ -236,13 +244,14 @@ class RenderHandler(BaseHTTPRequestHandler):
                 422,
                 {"status": "FAIL", "code": "RENDER_FAILED", "message": str(error)},
             )
-        except Exception:
+        except Exception as error:
             self._json(
                 500,
                 {
                     "status": "FAIL",
                     "code": "RENDERER_UNAVAILABLE",
                     "message": "Native renderer unavailable. No artifact was generated.",
+                    "diagnostic": _safe_diagnostic(error),
                 },
             )
 

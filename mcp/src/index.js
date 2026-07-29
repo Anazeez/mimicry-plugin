@@ -222,7 +222,10 @@ const runArtifactJob = async (
         error instanceof ContainerRenderError
           ? error.message
           : UNAVAILABLE,
-      diagnostic: safeFailureDiagnostic(error),
+      diagnostic:
+        error instanceof ContainerRenderError && error.diagnostic
+          ? safeFailureDiagnostic({ message: error.diagnostic })
+          : safeFailureDiagnostic(error),
       report:
         error instanceof ContainerRenderError && error.report
           ? compactValidationReport(error.report)
@@ -308,6 +311,7 @@ export class ArtifactRendererContainerV2 extends ArtifactRendererContainer {}
 export class ArtifactRendererContainerV3 extends ArtifactRendererContainer {}
 export class ArtifactRendererContainerV4 extends ArtifactRendererContainer {}
 export class ArtifactRendererContainerV5 extends ArtifactRendererContainer {}
+export class ArtifactRendererContainerV6 extends ArtifactRendererContainer {}
 
 export class ArtifactRenderWorkflow extends WorkflowEntrypoint {
   async run(event, step) {

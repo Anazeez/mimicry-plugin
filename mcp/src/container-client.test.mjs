@@ -103,3 +103,26 @@ test("retains a failed render preview for owner diagnostics", async () => {
     }
   );
 });
+
+test("reports the bounded HTTP boundary when renderer failure is not JSON", async () => {
+  const renderer = {
+    async fetch() {
+      return new Response("upstream container unavailable", {
+        status: 503,
+        headers: { "content-type": "text/plain; charset=utf-8" }
+      });
+    }
+  };
+  await assert.rejects(
+    extractAndRenderInContainer({ renderer, reference, hints: {} }),
+    (error) => {
+      assert.ok(error instanceof ContainerRenderError);
+      assert.equal(error.code, "RENDER_FAILED");
+      assert.equal(
+        error.diagnostic,
+        "Renderer HTTP 503 (text/plain; charset=utf-8)"
+      );
+      return true;
+    }
+  );
+});

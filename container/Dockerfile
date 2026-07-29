@@ -1,6 +1,6 @@
 FROM ubuntu:24.04
 
-ARG MIMICRY_RENDERER_REVISION=2026-07-29-fidelity-v4
+ARG MIMICRY_RENDERER_REVISION=2026-07-29-diagnostics-v5
 LABEL org.opencontainers.image.revision="${MIMICRY_RENDERER_REVISION}"
 
 ENV DEBIAN_FRONTEND=noninteractive \

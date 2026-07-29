@@ -7,7 +7,8 @@ export class ContainerRenderError extends Error {
     report = null,
     code = "RENDER_FAILED",
     debugPreviewBase64 = null,
-    debugPreviewMime = null
+    debugPreviewMime = null,
+    diagnostic = null
   ) {
     super(message);
     this.name = "ContainerRenderError";
@@ -15,6 +16,7 @@ export class ContainerRenderError extends Error {
     this.report = report;
     this.debugPreviewBase64 = debugPreviewBase64;
     this.debugPreviewMime = debugPreviewMime;
+    this.diagnostic = diagnostic;
     this.debugPreview =
       typeof debugPreviewBase64 === "string" && debugPreviewBase64
         ? Uint8Array.from(atob(debugPreviewBase64), (character) =>
@@ -77,17 +79,23 @@ export async function extractAndRenderInContainer({
   }
   if (!response.ok) {
     let payload = {};
+    const responseText = await response.text();
     try {
-      payload = await response.json();
+      payload = JSON.parse(responseText);
     } catch {
       // A non-JSON renderer error is intentionally reduced to a stable failure.
     }
+    const diagnostic =
+      typeof payload.diagnostic === "string" && payload.diagnostic
+        ? payload.diagnostic
+        : `Renderer HTTP ${response.status} (${response.headers.get("content-type") || "unknown content type"})`;
     throw new ContainerRenderError(
       payload.message || "Artifact Mimicry validation failed. No editable artifact was generated.",
       payload.validation || null,
       payload.code || "RENDER_FAILED",
       payload.debug_preview_base64 || null,
-      payload.debug_preview_mime || null
+      payload.debug_preview_mime || null,
+      diagnostic
     );
   }
   const declared = Number(response.headers.get("content-length") || 0);
