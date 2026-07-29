@@ -41,6 +41,51 @@ test("downloads the reference, extracts its scene, and returns only a passing ar
   assert.equal(result.report.status, "PASS");
 });
 
+test("warms the renderer concurrently before scene extraction completes", async () => {
+  const events = [];
+  let releaseWarmup;
+  const renderer = {
+    fetch() {
+      events.push("warm-start");
+      return new Promise((resolve) => {
+        releaseWarmup = () => {
+          events.push("warm-ready");
+          resolve(new Response("ok"));
+        };
+      });
+    }
+  };
+  const resultPromise = executeReferencePipeline({
+    referenceFile: { download_url: "https://example.com/reference.png" },
+    ai: {},
+    renderer,
+    downloadReferenceImpl: async () => {
+      events.push("download");
+      return { bytes: new Uint8Array([1]), mimeType: "image/png" };
+    },
+    extractSceneGraphImpl: async () => {
+      events.push("extract");
+      releaseWarmup();
+      return { version: "scene-graph.v1" };
+    },
+    renderWithOneCorrectionImpl: async () => {
+      events.push("render");
+      return {
+        bytes: new Uint8Array([2]),
+        report: { status: "PASS" }
+      };
+    }
+  });
+  await resultPromise;
+  assert.deepEqual(events, [
+    "warm-start",
+    "download",
+    "extract",
+    "warm-ready",
+    "render"
+  ]);
+});
+
 test("propagates the second fail-closed result and returns no artifact bytes", async () => {
   let artifacts = 0;
   await assert.rejects(

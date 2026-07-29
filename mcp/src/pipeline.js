@@ -13,8 +13,17 @@ export async function executeReferencePipeline({
   correctSceneGraphImpl = correctSceneGraph,
   onArtifact
 }) {
+  // Container cold start and vision extraction are independent. Start the
+  // renderer immediately so neither latency is paid serially.
+  const rendererWarmup =
+    typeof renderer?.fetch === "function"
+      ? renderer
+          .fetch(new Request("http://renderer/health"))
+          .catch(() => null)
+      : Promise.resolve(null);
   const reference = await downloadReferenceImpl(referenceFile);
   const scene = await extractSceneGraphImpl({ ai, reference, hints });
+  await rendererWarmup;
   const result = await renderWithOneCorrectionImpl({
     renderer,
     scene,
