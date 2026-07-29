@@ -1,6 +1,6 @@
 {
   "name": "artifact-mimicry-mcp",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,6 +8,7 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@cloudflare/containers": "0.3.7",
     "@cloudflare/workers-oauth-provider": "0.8.2",
     "@modelcontextprotocol/sdk": "1.29.0",
     "agents": "0.16.0",

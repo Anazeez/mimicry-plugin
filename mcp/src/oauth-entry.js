@@ -2,6 +2,7 @@ import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 
 import app, {
   ArtifactMimicryMCP,
+  ArtifactRendererContainer,
   ArtifactStore,
 } from "./index.js";
 import { createProtectedApi, createPublicApi } from "./access.js";
@@ -19,7 +20,7 @@ const mcpHandler = {
 const protectedApi = createProtectedApi({ mcpHandler });
 const publicApi = createPublicApi({ app });
 
-export { ArtifactMimicryMCP, ArtifactStore };
+export { ArtifactMimicryMCP, ArtifactRendererContainer, ArtifactStore };
 
 export default new OAuthProvider({
   ...OAUTH_PROVIDER_OPTIONS,

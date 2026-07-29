@@ -17,7 +17,7 @@ from container.app.server import RenderRequestError, render_request
 
 ROOT = Path(__file__).resolve().parents[2]
 SCENE_PATH = ROOT / "container/tests/fixtures/minimal-scene.json"
-FAILED_DOCX = ROOT / "fixtures/meeting-grid/failed.docx"
+FAILED_DOCX = ROOT / "container/tests/fixtures/failed.docx"
 
 
 class NativeRendererTests(unittest.TestCase):

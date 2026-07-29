@@ -2,12 +2,16 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "artifact-mimicry-mcp",
   "main": "src/oauth-entry.js",
-  "compatibility_date": "2026-07-26",
+  "compatibility_date": "2026-07-29",
   "compatibility_flags": ["nodejs_compat"],
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": ["ArtifactMimicryMCP", "ArtifactStore"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["ArtifactRendererContainer"]
     }
   ],
   "durable_objects": {
@@ -19,8 +23,22 @@
       {
         "name": "ARTIFACT_STORE",
         "class_name": "ArtifactStore"
+      },
+      {
+        "name": "RENDERER",
+        "class_name": "ArtifactRendererContainer"
       }
     ]
+  },
+  "containers": [
+    {
+      "class_name": "ArtifactRendererContainer",
+      "image": "../container/Dockerfile",
+      "max_instances": 2
+    }
+  ],
+  "ai": {
+    "binding": "AI"
   },
   "vars": {
     "PUBLIC_BASE_URL": "https://artifact-mimicry-mcp.izeesub.workers.dev",

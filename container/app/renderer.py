@@ -107,7 +107,10 @@ def _office(workspace):
         resolver = local.ServiceManager.createInstanceWithContext(
             "com.sun.star.bridge.UnoUrlResolver", local
         )
-        for _ in range(80):
+        # Cloudflare starts the container on amd64, while local release checks
+        # may emulate amd64. Give LibreOffice enough time to initialize in both
+        # environments without weakening the bounded execution contract.
+        for _ in range(300):
             if process.poll() is not None:
                 detail = process.stderr.read().decode("utf-8", "replace")
                 raise RenderError("LibreOffice exited before accepting UNO: %s" % detail)

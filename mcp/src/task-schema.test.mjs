@@ -2,45 +2,33 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { z } from "zod";
 
-import { mimicryTaskInputSchema } from "./task-schema.js";
+import { mimicryHintsInputSchema } from "./task-schema.js";
 
-test("advertises the native editable decomposition instead of an opaque task", () => {
-  const schema = z.toJSONSchema(mimicryTaskInputSchema);
+test("advertises optional non-geometric hints rather than requiring model-authored shapes", () => {
+  const schema = z.toJSONSchema(mimicryHintsInputSchema);
 
-  assert.deepEqual(schema.required, ["page", "elements"]);
-  assert.equal(schema.properties.elements.minItems, 1);
-  assert.deepEqual(
-    schema.properties.elements.items.required,
-    ["id", "type", "x", "y", "w", "h", "editable"],
-  );
+  assert.equal(schema.required, undefined);
+  assert.ok(schema.properties.instructions);
+  assert.ok(schema.properties.language);
+  assert.ok(schema.properties.replacement_text);
+  assert.equal(schema.properties.elements, undefined);
+  assert.equal(schema.properties.page, undefined);
 });
 
-test("rejects an empty task before the renderer is invoked", () => {
-  const result = mimicryTaskInputSchema.safeParse({
-    page: { width_in: 8.5, height_in: 11 },
-    elements: [],
-  });
-
-  assert.equal(result.success, false);
-  assert.equal(result.error.issues[0].path.join("."), "elements");
+test("accepts an empty hint object because the reference controls geometry", () => {
+  assert.equal(mimicryHintsInputSchema.safeParse({}).success, true);
 });
 
-test("accepts a canonical editable native shape task", () => {
-  const result = mimicryTaskInputSchema.safeParse({
-    page: { width_in: 8.5, height_in: 11 },
-    elements: [
-      {
-        id: "title",
-        type: "roundRect",
-        x: 0.1,
-        y: 0.1,
-        w: 0.8,
-        h: 0.1,
-        editable: true,
-        text: "Editable title",
-      },
-    ],
+test("accepts text replacements but strips attempted geometry overrides", () => {
+  const result = mimicryHintsInputSchema.parse({
+    language: "ar",
+    replacement_text: { title: "اجتماع يومي" },
+    bbox: [0, 0, 1, 1],
+    elements: [{ id: "title", x: 0 }]
   });
 
-  assert.equal(result.success, true);
+  assert.deepEqual(result, {
+    language: "ar",
+    replacement_text: { title: "اجتماع يومي" }
+  });
 });

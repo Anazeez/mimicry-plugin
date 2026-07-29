@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { Container, getRandom } from "@cloudflare/containers";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { z } from "zod";
@@ -6,8 +7,9 @@ import {
   EXECUTE_TOOL_META,
   referenceFileSchema,
 } from "./file-handoff.js";
-import { ArtifactValidationError, renderAndValidate } from "./renderer.js";
-import { mimicryTaskInputSchema } from "./task-schema.js";
+import { ContainerRenderError } from "./container-client.js";
+import { executeReferencePipeline } from "./pipeline.js";
+import { mimicryHintsInputSchema } from "./task-schema.js";
 
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -136,12 +138,20 @@ export class ArtifactStore extends DurableObject {
   }
 }
 
+export class ArtifactRendererContainer extends Container {
+  defaultPort = 8080;
+  requiredPorts = [8080];
+  sleepAfter = "2m";
+  enableInternet = false;
+  pingEndpoint = "localhost/health";
+}
+
 export class ArtifactMimicryMCP extends McpAgent {
   server = new McpServer(
-    { name: "artifact-mimicry", version: "0.4.0" },
+    { name: "artifact-mimicry", version: "1.0.0" },
     {
       instructions:
-        "For Artifact Mimicry DOCX requests, call execute after decomposing the reference into the supplied native-shape task schema. Never manually construct, reuse, or substitute an artifact. If execute is unavailable, return exactly: Artifact Mimicry renderer unavailable. No editable artifact was generated."
+        "For Artifact Mimicry DOCX requests, call execute with the attached reference file. The tool itself downloads the reference, measures a generic editable scene graph, constructs the DOCX through LibreOffice, reopens and renders the saved file, and independently validates geometry and visual fidelity. Never manually decompose, construct, reuse, or substitute an artifact. If execute is unavailable, return exactly: Artifact Mimicry renderer unavailable. No editable artifact was generated."
     }
   );
 
@@ -151,15 +161,13 @@ export class ArtifactMimicryMCP extends McpAgent {
       {
         title: "Render editable Word artifact",
         description:
-          "Required execution path for Artifact Mimicry Word requests. Accepts the reference decomposition as a native-shape task, runs deterministic DOCX rendering and structural validation, and returns a fresh downloadable DOCX. Never emulate this tool manually.",
+          "Required execution path for Artifact Mimicry Word requests. Downloads the attached visual reference, extracts its generic scene graph, renders native editable objects through LibreOffice, reopens the saved DOCX, and returns it only after independent geometry and visual fidelity gates pass. Never emulate this tool manually.",
         inputSchema: {
           reference_file: referenceFileSchema,
-          task: mimicryTaskInputSchema,
-          expectations: z
-            .any()
+          hints: mimicryHintsInputSchema
             .optional()
             .describe(
-              "Fail-closed structural expectations including shape counts, required text, RTL labels, and required shape names."
+              "Optional non-geometric guidance or editable text replacements. The reference controls measured geometry."
             ),
           filename: z.string().optional().describe("Desired .docx filename.")
         },
@@ -177,10 +185,16 @@ export class ArtifactMimicryMCP extends McpAgent {
         },
         _meta: EXECUTE_TOOL_META
       },
-      async ({ reference_file: referenceFile, task, expectations = {}, filename }) => {
+      async ({ reference_file: referenceFile, hints = {}, filename }) => {
         try {
           referenceFileSchema.parse(referenceFile);
-          const { bytes, report } = renderAndValidate(task, expectations);
+          const renderer = await getRandom(this.env.RENDERER, 1);
+          const { bytes, report } = await executeReferencePipeline({
+            referenceFile,
+            hints,
+            ai: this.env.AI,
+            renderer
+          });
           const artifactId = crypto.randomUUID();
           const expiresAt = Date.now() + MAX_ARTIFACT_AGE_MS;
           const outputFilename = safeFilename(filename);
@@ -223,14 +237,11 @@ export class ArtifactMimicryMCP extends McpAgent {
             ]
           };
         } catch (error) {
-          const message =
-            error instanceof ArtifactValidationError
-              ? error.message
-              : UNAVAILABLE;
+          const message = error instanceof ContainerRenderError ? error.message : UNAVAILABLE;
           return {
             isError: true,
             content: [{ type: "text", text: message }],
-            ...(error instanceof ArtifactValidationError
+            ...(error instanceof ContainerRenderError && error.report
               ? {
                   _meta: {
                     "artifact-mimicry/validation-report": error.report
@@ -264,7 +275,7 @@ export default {
     if (request.method === "GET" && url.pathname === "/") {
       return Response.json({
         name: "artifact-mimicry",
-        version: "0.4.0",
+        version: "1.0.0",
         status: "ok",
         mcp: "/mcp"
       });
