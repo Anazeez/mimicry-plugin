@@ -174,6 +174,7 @@ export const sceneGraphJsonSchema = Object.freeze({
     nodes: {
       type: "array",
       minItems: 1,
+      maxItems: 64,
       items: {
         type: "object",
         additionalProperties: false,
@@ -251,7 +252,7 @@ export const sceneGraphJsonSchema = Object.freeze({
     },
     constraints: {
       type: "array",
-      maxItems: 48,
+      maxItems: 24,
       items: {
         type: "object",
         additionalProperties: false,
@@ -409,7 +410,7 @@ export async function extractSceneGraph({ ai, reference, hints = {} }) {
       {
         role: "system",
         content:
-          "Extract a reference-agnostic editable page scene graph. Measure every visible region, text box, line, border, grid, shape, and image. Use normalized bounding boxes, stable IDs, explicit z-order, typography, colors, RTL/LTR direction, and parent relationships. Add no more than 48 high-value geometric constraints; prioritize complete nodes over redundant pairwise constraints. A semantic table may be a grid or independent shapes according to its actual visual construction. Never invent fixture-specific node types."
+          "Extract a compact, reference-agnostic editable page scene graph with at most 64 nodes and 24 high-value constraints. Measure every distinct visible region, text box, line, border, shape, and image, but represent repeated uniform rows and cells as one grid node instead of enumerating each cell. Use normalized bounding boxes, stable IDs, explicit z-order, typography, colors, RTL/LTR direction, and parent relationships. Prioritize complete nodes over redundant pairwise constraints. A semantic table may be a grid or independent shapes according to its actual visual construction. Return only the declared fields and never invent fixture-specific node types."
       },
       {
         role: "user",
@@ -428,7 +429,7 @@ export async function extractSceneGraph({ ai, reference, hints = {} }) {
     response_format: sceneGraphResponseFormat,
     chat_template_kwargs: { thinking: false },
     temperature: 0,
-    max_completion_tokens: 8192
+    max_completion_tokens: 16384
   });
   let parsed;
   try {
@@ -476,7 +477,7 @@ export async function correctSceneGraph({
     response_format: sceneGraphResponseFormat,
     chat_template_kwargs: { thinking: false },
     temperature: 0,
-    max_completion_tokens: 8192
+    max_completion_tokens: 16384
   });
   try {
     return sceneGraphSchema.parse(canonicalizeSceneNodeTypes(parseVisionResponse(response)));

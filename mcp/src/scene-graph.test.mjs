@@ -63,10 +63,14 @@ test("sends the actual reference image to Workers AI and validates its scene gra
   assert.ok(nodeSchema.allOf.some((rule) => rule.then?.required?.includes("style")));
   assert.equal(
     calls[0].input.response_format.json_schema.schema.properties.constraints.maxItems,
-    48
+    24
+  );
+  assert.equal(
+    calls[0].input.response_format.json_schema.schema.properties.nodes.maxItems,
+    64
   );
   assert.deepEqual(calls[0].input.chat_template_kwargs, { thinking: false });
-  assert.equal(calls[0].input.max_completion_tokens, 8192);
+  assert.equal(calls[0].input.max_completion_tokens, 16384);
   assert.deepEqual(result, graph);
 });
 
