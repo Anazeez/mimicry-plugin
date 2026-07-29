@@ -220,10 +220,10 @@ const parseVisionResponse = (response) => {
   const raw =
     typeof response === "string"
       ? response
-      : response?.response ??
+      : response?.choices?.[0]?.message?.content ??
+        response?.response ??
         response?.result ??
-        response?.output ??
-        response?.choices?.[0]?.message?.content;
+        response?.output;
   if (raw && typeof raw === "object") return raw;
   if (typeof raw !== "string") {
     throw new Error("SCENE_RESPONSE: Workers AI returned no structured scene graph");

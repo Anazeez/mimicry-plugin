@@ -120,6 +120,26 @@ test("deterministically repairs malformed model JSON before strict validation", 
   assert.deepEqual(result, graph);
 });
 
+test("prefers OpenAI-style choices over an empty legacy response field", async () => {
+  const ai = {
+    async run() {
+      return {
+        response: "",
+        choices: [{ message: { content: JSON.stringify(graph) } }]
+      };
+    }
+  };
+  const result = await extractSceneGraph({
+    ai,
+    reference: {
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xdb]),
+      mimeType: "image/jpeg",
+      digest: "abc"
+    }
+  });
+  assert.deepEqual(result, graph);
+});
+
 test("fails closed when vision returns a malformed or fixture-specific graph", async () => {
   const ai = {
     async run() {
