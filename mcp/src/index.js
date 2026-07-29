@@ -7,6 +7,7 @@ import {
   referenceFileSchema,
 } from "./file-handoff.js";
 import { ArtifactValidationError, renderAndValidate } from "./renderer.js";
+import { mimicryTaskInputSchema } from "./task-schema.js";
 
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -153,11 +154,7 @@ export class ArtifactMimicryMCP extends McpAgent {
           "Required execution path for Artifact Mimicry Word requests. Accepts the reference decomposition as a native-shape task, runs deterministic DOCX rendering and structural validation, and returns a fresh downloadable DOCX. Never emulate this tool manually.",
         inputSchema: {
           reference_file: referenceFileSchema,
-          task: z
-            .any()
-            .describe(
-              "Artifact Mimicry task matching mimicry-task.schema.json, including page dimensions and editable native elements."
-            ),
+          task: mimicryTaskInputSchema,
           expectations: z
             .any()
             .optional()
