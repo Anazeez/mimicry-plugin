@@ -2,6 +2,10 @@ import { DurableObject } from "cloudflare:workers";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { z } from "zod";
+import {
+  EXECUTE_TOOL_META,
+  referenceFileSchema,
+} from "./file-handoff.js";
 import { renderAndValidate } from "./renderer.js";
 
 const DOCX_MIME =
@@ -148,6 +152,7 @@ export class ArtifactMimicryMCP extends McpAgent {
         description:
           "Required execution path for Artifact Mimicry Word requests. Accepts the reference decomposition as a native-shape task, runs deterministic DOCX rendering and structural validation, and returns a fresh downloadable DOCX. Never emulate this tool manually.",
         inputSchema: {
+          reference_file: referenceFileSchema,
           task: z
             .any()
             .describe(
@@ -172,10 +177,12 @@ export class ArtifactMimicryMCP extends McpAgent {
           readOnlyHint: false,
           destructiveHint: false,
           openWorldHint: true
-        }
+        },
+        _meta: EXECUTE_TOOL_META
       },
-      async ({ task, expectations = {}, filename }) => {
+      async ({ reference_file: referenceFile, task, expectations = {}, filename }) => {
         try {
+          referenceFileSchema.parse(referenceFile);
           const { bytes, report } = renderAndValidate(task, expectations);
           const artifactId = crypto.randomUUID();
           const expiresAt = Date.now() + MAX_ARTIFACT_AGE_MS;
