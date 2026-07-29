@@ -281,6 +281,9 @@ def _add_text(document, draw_page, node, page_width, page_height):
             "ParaWritingMode",
             uno.getConstantByName("com.sun.star.text.WritingMode2.RL_TB"),
         )
+    _set_if_supported(shape, "TextAutoGrowHeight", False)
+    _set_if_supported(shape, "TextAutoGrowWidth", False)
+    _set_geometry(shape, node["bbox"], page_width, page_height)
     return shape
 
 
@@ -294,7 +297,7 @@ def _add_shape(document, draw_page, node, page_width, page_height, reference, wo
         "rectangle": "com.sun.star.drawing.RectangleShape",
         "rounded_rectangle": "com.sun.star.drawing.RectangleShape",
         "ellipse": "com.sun.star.drawing.EllipseShape",
-        "line": "com.sun.star.drawing.LineShape",
+        "line": "com.sun.star.drawing.RectangleShape",
         "polygon": "com.sun.star.drawing.RectangleShape",
         "grid": "com.sun.star.drawing.RectangleShape",
         "image": "com.sun.star.drawing.GraphicObjectShape",
@@ -308,7 +311,14 @@ def _add_shape(document, draw_page, node, page_width, page_height, reference, wo
         _crop_reference(reference, node.get("crop", [0, 0, 1, 1]), crop_path)
         _set_if_supported(shape, "GraphicURL", crop_path.resolve().as_uri())
     _set_geometry(shape, node["bbox"], page_width, page_height)
-    _apply_style(shape, node.get("style", {}))
+    if node_type == "line":
+        line_style = dict(node.get("style", {}))
+        line_style["fill"] = line_style.get("stroke")
+        line_style["stroke"] = None
+        line_style["stroke_width"] = 0
+        _apply_style(shape, line_style)
+    else:
+        _apply_style(shape, node.get("style", {}))
     if node_type == "rounded_rectangle":
         radius = float(node["style"].get("corner_radius", 0))
         absolute_height = node["bbox"][3] * page_height
@@ -409,6 +419,44 @@ def _nonwhite_ratio(path):
     return nonwhite / count if count else 0
 
 
+def _shape_geometry(shape):
+    try:
+        position = shape.Position
+        x, y = position.X, position.Y
+    except Exception:
+        x = getattr(shape, "HoriOrientPosition")
+        y = getattr(shape, "VertOrientPosition")
+    try:
+        size = shape.Size
+        width, height = size.Width, size.Height
+    except Exception:
+        width = getattr(shape, "Width")
+        height = getattr(shape, "Height")
+    return float(x), float(y), float(width), float(height)
+
+
+def _actual_nodes(document, page_width, page_height):
+    draw_page = document.getDrawPage()
+    nodes = []
+    for index in range(draw_page.Count):
+        shape = draw_page.getByIndex(index)
+        node_id = str(getattr(shape, "Name", "") or "shape-%d" % index)
+        x, y, width, height = _shape_geometry(shape)
+        nodes.append(
+            {
+                "id": node_id,
+                "shape_type": str(getattr(shape, "ShapeType", "unknown")),
+                "bbox": [
+                    x / page_width,
+                    y / page_height,
+                    width / page_width,
+                    height / page_height,
+                ],
+            }
+        )
+    return nodes
+
+
 def render_scene(scene, reference_path, workspace):
     """Build, reopen, and render one scene as a native editable DOCX."""
 
@@ -443,11 +491,19 @@ def render_scene(scene, reference_path, workspace):
             document.close(True)
 
         reopened = desktop.loadComponentFromURL(
-            docx_path.resolve().as_uri(), "_blank", 0, (_property("Hidden", True),)
+            docx_path.resolve().as_uri(),
+            "_blank",
+            0,
+            (
+                _property("Hidden", True),
+                _property("FilterName", "Office Open XML Text"),
+                _property("ReadOnly", True),
+            ),
         )
         if reopened is None:
             raise RenderError("LibreOffice could not reopen the generated DOCX")
         try:
+            actual_nodes = _actual_nodes(reopened, page_width, page_height)
             _export_pdf(reopened, pdf_path)
         finally:
             reopened.close(True)
@@ -481,6 +537,7 @@ def render_scene(scene, reference_path, workspace):
             for node in scene["nodes"]
             if node["type"] == "text" and node["text"]["direction"] in {"rtl", "mixed"}
         ],
+        "actual_nodes": actual_nodes,
         "nonwhite_ratio": _nonwhite_ratio(png_path),
     }
     return RenderedArtifact(docx_path, pdf_path, png_path, manifest)
@@ -498,7 +555,11 @@ def inspect_rendered_docx(docx_path, workspace):
             Path(docx_path).resolve().as_uri(),
             "_blank",
             0,
-            (_property("Hidden", True),),
+            (
+                _property("Hidden", True),
+                _property("FilterName", "Office Open XML Text"),
+                _property("ReadOnly", True),
+            ),
         )
         if document is None:
             return {"accepted": False, "failed_gates": ["R_REOPEN"]}

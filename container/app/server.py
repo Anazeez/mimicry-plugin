@@ -12,6 +12,7 @@ import zipfile
 
 from .renderer import RenderError, render_scene
 from .schemas import SceneGraphError, validate_scene_graph
+from .validator import validate_fidelity
 
 
 MAX_REFERENCE_BYTES = 20 * 1024 * 1024
@@ -24,6 +25,16 @@ class RenderRequestError(ValueError):
         super().__init__("%s: %s" % (code, message))
         self.code = code
         self.status = status
+
+
+class FidelityValidationError(RenderRequestError):
+    def __init__(self, report):
+        super().__init__(
+            "FIDELITY_FAILED",
+            "Generated DOCX failed independent fidelity validation",
+            422,
+        )
+        self.report = report
 
 
 def render_request(scene_bytes, reference_name, reference_bytes, workspace):
@@ -48,6 +59,13 @@ def render_request(scene_bytes, reference_name, reference_bytes, workspace):
     reference_path = workspace / ("reference%s" % suffix)
     reference_path.write_bytes(reference_bytes)
     artifact = render_scene(scene, reference_path, workspace)
+    report = validate_fidelity(
+        reference_path, artifact.png_path, scene, artifact.manifest
+    )
+    if report["status"] != "PASS":
+        raise FidelityValidationError(report)
+    manifest = dict(artifact.manifest)
+    manifest["fidelity"] = report
 
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -56,7 +74,7 @@ def render_request(scene_bytes, reference_name, reference_bytes, workspace):
         archive.write(artifact.png_path, "artifact.png")
         archive.writestr(
             "manifest.json",
-            json.dumps(artifact.manifest, sort_keys=True, separators=(",", ":")),
+            json.dumps(manifest, sort_keys=True, separators=(",", ":")),
         )
     return output.getvalue()
 
@@ -131,9 +149,16 @@ class RenderHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(result)
         except RenderRequestError as error:
+            response = {
+                "status": "FAIL",
+                "code": error.code,
+                "message": str(error),
+            }
+            if isinstance(error, FidelityValidationError):
+                response["validation"] = error.report
             self._json(
                 error.status,
-                {"status": "FAIL", "code": error.code, "message": str(error)},
+                response,
             )
         except RenderError as error:
             self._json(

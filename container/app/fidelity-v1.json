@@ -1,0 +1,25 @@
+{
+  "version": "fidelity-v1",
+  "critical_gates": [
+    "S_EDITABILITY",
+    "R_NONBLANK",
+    "R_SINGLE_PAGE",
+    "G_ALIGNMENT",
+    "G_RELATIONSHIPS",
+    "G_BORDER_CONTINUITY",
+    "V_CONTRAST",
+    "V_EDGE_SIMILARITY",
+    "V_PALETTE",
+    "V_STRUCTURE"
+  ],
+  "thresholds": {
+    "nonwhite_ratio_min": 0.002,
+    "bbox_max_error": 0.025,
+    "relationship_max_error": 0.025,
+    "border_coverage_min": 0.12,
+    "contrast_ratio_min": 3.0,
+    "edge_f1_min": 0.30,
+    "palette_distance_max": 0.28,
+    "ssim_min": 0.45
+  }
+}

@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from PIL import Image, ImageDraw
@@ -46,6 +47,22 @@ class NativeRendererTests(unittest.TestCase):
             self.assertIn(1.5, artifact.manifest["stroke_widths"])
             self.assertIn("#201b19", artifact.manifest["text_colors"])
             self.assertIn("rtl-title", artifact.manifest["rtl_text_nodes"])
+            actual = {
+                node["id"]: node["bbox"] for node in artifact.manifest["actual_nodes"]
+            }
+            self.assertEqual(set(actual), {
+                "panel-left",
+                "panel-right",
+                "rtl-title",
+                "english-title",
+                "divider",
+                "portrait",
+            })
+            for expected in scene["nodes"]:
+                for observed_value, expected_value in zip(
+                    actual[expected["id"]], expected["bbox"]
+                ):
+                    self.assertAlmostEqual(observed_value, expected_value, delta=0.02)
 
             rendered = Image.open(artifact.png_path).convert("RGB")
             nonwhite = sum(
@@ -75,9 +92,20 @@ class NativeRendererTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             reference = Path(directory) / "reference.jpg"
             self._reference(reference)
-            bundle = render_request(
-                scene_bytes, reference.name, reference.read_bytes(), Path(directory)
-            )
+            with patch(
+                "container.app.server.validate_fidelity",
+                return_value={
+                    "status": "PASS",
+                    "version": "fidelity-v1",
+                    "gates": {"S_EDITABILITY": True},
+                    "metrics": {},
+                    "findings": [],
+                    "correction_hints": [],
+                },
+            ):
+                bundle = render_request(
+                    scene_bytes, reference.name, reference.read_bytes(), Path(directory)
+                )
         with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
             self.assertEqual(
                 set(archive.namelist()),
@@ -86,6 +114,7 @@ class NativeRendererTests(unittest.TestCase):
             manifest = json.loads(archive.read("manifest.json"))
         self.assertEqual(manifest["page_count"], 1)
         self.assertGreater(manifest["nonwhite_ratio"], 0.05)
+        self.assertEqual(manifest["fidelity"]["status"], "PASS")
 
     def test_container_boundary_rejects_oversized_reference(self):
         with tempfile.TemporaryDirectory() as directory:
