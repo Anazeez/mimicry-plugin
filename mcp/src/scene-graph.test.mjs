@@ -31,7 +31,7 @@ test("sends the actual reference image to Workers AI and validates its scene gra
   const ai = {
     async run(model, input) {
       calls.push({ model, input });
-      return { response: JSON.stringify(graph) };
+      return { answer: JSON.stringify(graph) };
     }
   };
   const result = await extractSceneGraph({
@@ -45,13 +45,16 @@ test("sends the actual reference image to Workers AI and validates its scene gra
   });
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].model, "@cf/meta/llama-4-scout-17b-16e-instruct");
+  assert.equal(calls[0].model, "@cf/moondream/moondream3.1-9B-A2B");
   assert.match(
-    calls[0].input.messages[1].content[1].image_url.url,
+    calls[0].input.image,
     /^data:image\/jpeg;base64,/
   );
+  assert.equal(calls[0].input.task, "query");
+  assert.equal(calls[0].input.reasoning, false);
+  assert.equal(calls[0].input.stream, false);
+  assert.match(calls[0].input.question, /scene-graph\.v1 JSON/);
   assert.equal(calls[0].input.temperature, 0);
-  assert.ok(calls[0].input.guided_json.properties.nodes);
   assert.equal(calls[0].input.max_tokens, 4200);
   assert.deepEqual(result, graph);
 });

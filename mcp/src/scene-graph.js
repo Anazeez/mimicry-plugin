@@ -12,7 +12,7 @@ const nodeTypes = [
   "grid",
   "image"
 ];
-const VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
+const VISION_MODEL = "@cf/moondream/moondream3.1-9B-A2B";
 const constraintTypes = [
   "inside",
   "align_left",
@@ -221,6 +221,7 @@ const parseVisionResponse = (response) => {
     typeof response === "string"
       ? response
       : response?.choices?.[0]?.message?.content ??
+        response?.answer ??
         response?.response ??
         response?.result ??
         response?.output;
@@ -297,27 +298,13 @@ export async function extractSceneGraph({ ai, reference, hints = {} }) {
   const languageHint =
     typeof hints?.language === "string" ? ` Preferred language: ${hints.language}.` : "";
   const response = await ai.run(VISION_MODEL, {
-    messages: [
-      {
-        role: "system",
-        content:
-          "Extract a reference-agnostic editable page scene graph. Measure every visible region, text box, line, border, grid, shape, and image. Use normalized bounding boxes, stable IDs, explicit z-order, typography, colors, RTL/LTR direction, parent relationships, and geometric constraints. A semantic table may be a grid or independent shapes according to its actual visual construction. Never invent fixture-specific node types."
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `Return only scene-graph.v1 JSON for the attached reference.${languageHint}`
-          },
-          {
-            type: "image_url",
-            image_url: { url: image }
-          }
-        ]
-      }
-    ],
-    guided_json: sceneGraphJsonSchema,
+    task: "query",
+    image,
+    question:
+      "Extract a reference-agnostic editable page scene graph. Measure every visible region, text box, line, border, grid, shape, and image. Use normalized bounding boxes, stable IDs, explicit z-order, typography, colors, RTL/LTR direction, parent relationships, and geometric constraints. A semantic table may be a grid or independent shapes according to its actual visual construction. Never invent fixture-specific node types. " +
+      `Return only scene-graph.v1 JSON matching this schema: ${JSON.stringify(sceneGraphJsonSchema)}.${languageHint}`,
+    reasoning: false,
+    stream: false,
     temperature: 0,
     max_tokens: 4200
   });
@@ -341,30 +328,17 @@ export async function correctSceneGraph({
   if (!ai?.run) throw new Error("SCENE_AI_UNAVAILABLE: Workers AI binding is missing");
   const image = `data:${reference.mimeType};base64,${Buffer.from(reference.bytes).toString("base64")}`;
   const response = await ai.run(VISION_MODEL, {
-    messages: [
-      {
-        role: "system",
-        content:
-          "Correct an editable scene graph from independent rendered-validation evidence. Preserve all measured reference features that did not fail. Modify only nodes named by the validation hints. Return only scene-graph.v1 JSON."
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              current_scene: scene,
-              validation_hints: correctionHints
-            })
-          },
-          {
-            type: "image_url",
-            image_url: { url: image }
-          }
-        ]
-      }
-    ],
-    guided_json: sceneGraphJsonSchema,
+    task: "query",
+    image,
+    question:
+      "Correct this editable scene graph from independent rendered-validation evidence. Preserve every measured reference feature that did not fail. Modify only nodes named by the validation hints. Return only scene-graph.v1 JSON matching the supplied schema. " +
+      JSON.stringify({
+        schema: sceneGraphJsonSchema,
+        current_scene: scene,
+        validation_hints: correctionHints
+      }),
+    reasoning: false,
+    stream: false,
     temperature: 0,
     max_tokens: 4200
   });
