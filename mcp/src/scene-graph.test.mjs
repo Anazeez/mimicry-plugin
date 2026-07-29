@@ -347,6 +347,25 @@ test("normalizes equivalent grid dimension fields", async () => {
   assert.equal(result.nodes[0].columns, 6);
 });
 
+test("drops only constraints that reference omitted nodes", async () => {
+  const shorthandGraph = {
+    ...graph,
+    constraints: [
+      { type: "align_left", source: "title", target: "missing", tolerance: 0.01 }
+    ]
+  };
+  const ai = { async run() { return { response: JSON.stringify(shorthandGraph) }; } };
+  const result = await extractSceneGraph({
+    ai,
+    reference: {
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xdb]),
+      mimeType: "image/jpeg",
+      digest: "abc"
+    }
+  });
+  assert.deepEqual(result.constraints, []);
+});
+
 test("prefers OpenAI-style choices over an empty legacy response field", async () => {
   const ai = {
     async run() {

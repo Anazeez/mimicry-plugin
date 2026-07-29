@@ -472,9 +472,8 @@ const gridDimensions = (node) => ({
   )
 });
 
-const canonicalizeSceneNodeTypes = (scene) => ({
-  ...scene,
-  nodes: Array.isArray(scene?.nodes)
+const canonicalizeSceneNodeTypes = (scene) => {
+  const nodes = Array.isArray(scene?.nodes)
     ? scene.nodes.map((node, index) => {
         if (!node || typeof node.type !== "string") return node;
         const normalized = node.type.trim().toLowerCase().replace(/[\s-]+/g, "_");
@@ -497,8 +496,15 @@ const canonicalizeSceneNodeTypes = (scene) => ({
           ...(dimensions.columns ? { columns: dimensions.columns } : {})
         };
       })
-    : scene?.nodes
-});
+    : scene?.nodes;
+  const ids = new Set(Array.isArray(nodes) ? nodes.map((node) => node?.id).filter(Boolean) : []);
+  const constraints = Array.isArray(scene?.constraints)
+    ? scene.constraints.filter(
+        (constraint) => ids.has(constraint?.source) && ids.has(constraint?.target)
+      )
+    : scene?.constraints;
+  return { ...scene, nodes, constraints };
+};
 
 const stableSceneError = (error) => {
   const issue = error?.issues?.[0];
