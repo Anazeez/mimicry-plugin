@@ -12,7 +12,7 @@ const nodeTypes = [
   "grid",
   "image"
 ];
-const VISION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
+const VISION_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 const constraintTypes = [
   "inside",
   "align_left",
@@ -216,6 +216,15 @@ export const sceneGraphJsonSchema = Object.freeze({
   }
 });
 
+const sceneGraphResponseFormat = Object.freeze({
+  type: "json_schema",
+  json_schema: Object.freeze({
+    name: "scene_graph",
+    strict: true,
+    schema: sceneGraphJsonSchema
+  })
+});
+
 const parseVisionResponse = (response) => {
   const raw =
     typeof response === "string"
@@ -298,7 +307,6 @@ export async function extractSceneGraph({ ai, reference, hints = {} }) {
   const languageHint =
     typeof hints?.language === "string" ? ` Preferred language: ${hints.language}.` : "";
   const response = await ai.run(VISION_MODEL, {
-    image,
     messages: [
       {
         role: "system",
@@ -307,13 +315,19 @@ export async function extractSceneGraph({ ai, reference, hints = {} }) {
       },
       {
         role: "user",
-        content: `Return only scene-graph.v1 JSON for the attached reference.${languageHint}`
+        content: [
+          {
+            type: "text",
+            text: `Return only scene-graph.v1 JSON for the attached reference.${languageHint}`
+          },
+          {
+            type: "image_url",
+            image_url: { url: image }
+          }
+        ]
       }
     ],
-    response_format: {
-      type: "json_schema",
-      json_schema: sceneGraphJsonSchema
-    },
+    response_format: sceneGraphResponseFormat,
     temperature: 0,
     max_tokens: 4200
   });
@@ -337,7 +351,6 @@ export async function correctSceneGraph({
   if (!ai?.run) throw new Error("SCENE_AI_UNAVAILABLE: Workers AI binding is missing");
   const image = `data:${reference.mimeType};base64,${Buffer.from(reference.bytes).toString("base64")}`;
   const response = await ai.run(VISION_MODEL, {
-    image,
     messages: [
       {
         role: "system",
@@ -346,16 +359,22 @@ export async function correctSceneGraph({
       },
       {
         role: "user",
-        content: JSON.stringify({
-          current_scene: scene,
-          validation_hints: correctionHints
-        })
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              current_scene: scene,
+              validation_hints: correctionHints
+            })
+          },
+          {
+            type: "image_url",
+            image_url: { url: image }
+          }
+        ]
       }
     ],
-    response_format: {
-      type: "json_schema",
-      json_schema: sceneGraphJsonSchema
-    },
+    response_format: sceneGraphResponseFormat,
     temperature: 0,
     max_tokens: 4200
   });
