@@ -346,20 +346,31 @@ const parseVisionResponse = (response) => {
 
 const hasArabic = (value) => /[\u0600-\u06ff]/u.test(value);
 
-const canonicalText = (value) => {
-  if (typeof value === "string") {
-    const direction = hasArabic(value) ? "rtl" : "ltr";
-    return {
-      value,
-      direction,
-      font_family: direction === "rtl" ? "Noto Sans Arabic" : "Arial",
-      font_size_pt: 12,
-      weight: 400,
-      align: direction === "rtl" ? "right" : "left",
-      color: "#111111"
-    };
-  }
-  return value;
+const canonicalText = (node, type) => {
+  if (type !== "text") return node.text;
+  const raw = node.text ?? node.value ?? node.content ?? node.label ?? "";
+  const source = raw && typeof raw === "object" ? raw : {};
+  const value = String(
+    typeof raw === "string" ? raw : source.value ?? source.content ?? source.label ?? ""
+  );
+  const direction = ["ltr", "rtl", "mixed"].includes(source.direction)
+    ? source.direction
+    : hasArabic(value)
+      ? "rtl"
+      : "ltr";
+  return {
+    value,
+    direction,
+    font_family:
+      source.font_family || node.font_family || (direction === "rtl" ? "Noto Sans Arabic" : "Arial"),
+    font_size_pt: Number(source.font_size_pt ?? node.font_size_pt ?? node.font_size ?? 12),
+    weight: Number(source.weight ?? node.weight ?? 400),
+    align:
+      source.align ||
+      node.align ||
+      (direction === "rtl" ? "right" : direction === "ltr" ? "left" : "center"),
+    color: canonicalColor(source.color ?? node.color) || "#111111"
+  };
 };
 
 const canonicalNodeType = (node, normalized) => {
@@ -485,7 +496,7 @@ const canonicalizeSceneNodeTypes = (scene) => {
           editable: true,
           type,
           bbox: nodeBBox(node, type),
-          ...(node.text != null ? { text: canonicalText(node.text) } : {}),
+          ...(type === "text" ? { text: canonicalText(node, type) } : {}),
           ...(type !== "text" && type !== "group"
             ? { style: canonicalStyle(node, type) }
             : {}),
