@@ -5,6 +5,7 @@ import app, {
   ArtifactMimicryMCPV2,
   ArtifactRenderWorkflow,
   ArtifactRendererContainer,
+  ArtifactRendererContainerV2,
   ArtifactStore,
 } from "./index.js";
 import { createProtectedApi, createPublicApi } from "./access.js";
@@ -27,6 +28,7 @@ export {
   ArtifactMimicryMCPV2,
   ArtifactRenderWorkflow,
   ArtifactRendererContainer,
+  ArtifactRendererContainerV2,
   ArtifactStore
 };
 
