@@ -8,6 +8,11 @@ import {
   referenceFileSchema,
 } from "./file-handoff.js";
 import { ContainerRenderError } from "./container-client.js";
+import {
+  artifactJobPath,
+  isArtifactJobId,
+  jobStorageKey,
+} from "./job-capability.js";
 import { executeReferencePipeline } from "./pipeline.js";
 import {
   mimicryHintsInputSchema,
@@ -133,6 +138,32 @@ export class ArtifactStore extends DurableObject {
       return new Response(null, { status: 204 });
     }
 
+    if (request.method === "POST" && action === "job-put") {
+      if (!isArtifactJobId(artifactId)) {
+        return new Response("Invalid job id", { status: 400 });
+      }
+      await this.ctx.storage.put(jobStorageKey(artifactId), {
+        payload: await request.json(),
+        expiresAt: Date.now() + MAX_ARTIFACT_AGE_MS,
+      });
+      return new Response(null, { status: 204 });
+    }
+
+    if (request.method === "GET" && action === "job-get") {
+      if (!isArtifactJobId(artifactId)) {
+        return new Response("Invalid job id", { status: 400 });
+      }
+      const storageKey = jobStorageKey(artifactId);
+      const record = await this.ctx.storage.get(storageKey);
+      if (!record || Date.now() >= record.expiresAt) {
+        if (record) await this.ctx.storage.delete(storageKey);
+        return new Response("Artifact job expired or not found", { status: 404 });
+      }
+      return Response.json(record.payload, {
+        headers: { "cache-control": "private, no-store" },
+      });
+    }
+
     if (request.method === "GET" && action === "get") {
       const record = await this.ctx.storage.get(artifactId);
       if (!record || Date.now() >= record.expiresAt) {
@@ -169,6 +200,22 @@ export class ArtifactMimicryMCP extends McpAgent {
     }
   );
 
+  artifactStore() {
+    const storeId = this.env.ARTIFACT_STORE.idFromName("global");
+    return this.env.ARTIFACT_STORE.get(storeId);
+  }
+
+  async writeArtifactJob(jobId, record) {
+    const response = await this.artifactStore().fetch(
+      new Request(`https://artifact-store/job-put/${jobId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(record),
+      }),
+    );
+    if (!response.ok) throw new Error("artifact job storage failed");
+  }
+
   async processArtifactJob({
     jobId,
     referenceFile,
@@ -188,9 +235,7 @@ export class ArtifactMimicryMCP extends McpAgent {
       const artifactId = crypto.randomUUID();
       const expiresAt = Date.now() + MAX_ARTIFACT_AGE_MS;
       const outputFilename = safeFilename(filename);
-      const storeId = this.env.ARTIFACT_STORE.idFromName("global");
-      const store = this.env.ARTIFACT_STORE.get(storeId);
-      const stored = await store.fetch(
+      const stored = await this.artifactStore().fetch(
         new Request(`https://artifact-store/put/${artifactId}`, {
           method: "POST",
           headers: {
@@ -201,7 +246,7 @@ export class ArtifactMimicryMCP extends McpAgent {
         })
       );
       if (!stored.ok) throw new Error("artifact storage failed");
-      await this.ctx.storage.put(`artifact-job:${jobId}`, {
+      await this.writeArtifactJob(jobId, {
         status: "PASS",
         filename: outputFilename,
         download_url: `${this.env.PUBLIC_BASE_URL}/artifacts/${artifactId}/${encodeURIComponent(outputFilename)}`,
@@ -209,7 +254,7 @@ export class ArtifactMimicryMCP extends McpAgent {
         validation: report.gates
       });
     } catch (error) {
-      await this.ctx.storage.put(`artifact-job:${jobId}`, {
+      await this.writeArtifactJob(jobId, {
         status: "FAILED",
         message:
           error instanceof ContainerRenderError
@@ -226,7 +271,17 @@ export class ArtifactMimicryMCP extends McpAgent {
   async readArtifactJob(jobId, longPoll = false) {
     const deadline = Date.now() + (longPoll ? JOB_LONG_POLL_MS : 0);
     do {
-      const record = await this.ctx.storage.get(`artifact-job:${jobId}`);
+      const response = await this.artifactStore().fetch(
+        new Request(`https://artifact-store/job-get/${jobId}`),
+      );
+      const record =
+        response.status === 404
+          ? null
+          : response.ok
+            ? await response.json()
+            : (() => {
+                throw new Error("artifact job retrieval failed");
+              })();
       if (!record || record.status !== "PROCESSING") return record;
       if (Date.now() >= deadline) return record;
       await new Promise((resolve) => setTimeout(resolve, JOB_POLL_MS));
@@ -358,7 +413,7 @@ export class ArtifactMimicryMCP extends McpAgent {
           referenceFileSchema.parse(referenceFile);
           resolveMimicryHints({ hints, task });
           const jobId = crypto.randomUUID();
-          await this.ctx.storage.put(`artifact-job:${jobId}`, {
+          await this.writeArtifactJob(jobId, {
             status: "PROCESSING",
             created_at: new Date().toISOString()
           });
@@ -461,6 +516,18 @@ export default {
       const [, , artifactId] = url.pathname.split("/");
       const store = env.ARTIFACT_STORE.get(env.ARTIFACT_STORE.idFromName("global"));
       return store.fetch(new Request(`https://artifact-store/get/${artifactId}`));
+    }
+    if (request.method === "GET" && url.pathname.startsWith("/jobs/")) {
+      const jobId = url.pathname.slice("/jobs/".length);
+      if (!isArtifactJobId(jobId) || url.pathname !== artifactJobPath(jobId)) {
+        return new Response("Not Found", { status: 404 });
+      }
+      const store = env.ARTIFACT_STORE.get(
+        env.ARTIFACT_STORE.idFromName("global"),
+      );
+      return store.fetch(
+        new Request(`https://artifact-store/job-get/${jobId}`),
+      );
     }
     if (request.method === "OPTIONS" && url.pathname === "/mcp") {
       return new Response(null, {
