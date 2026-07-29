@@ -287,7 +287,7 @@ export async function extractSceneGraph({ ai, reference, hints = {} }) {
       type: "json_object"
     },
     temperature: 0,
-    max_tokens: 4096
+    max_tokens: 7000
   });
   let parsed;
   try {
@@ -328,7 +328,7 @@ export async function correctSceneGraph({
       type: "json_object"
     },
     temperature: 0,
-    max_tokens: 4096
+    max_tokens: 7000
   });
   try {
     return sceneGraphSchema.parse(parseVisionResponse(response));

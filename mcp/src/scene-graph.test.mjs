@@ -49,7 +49,7 @@ test("sends the actual reference image to Workers AI and validates its scene gra
   assert.match(calls[1].input.image, /^data:image\/jpeg;base64,/);
   assert.equal(calls[1].input.temperature, 0);
   assert.equal(calls[1].input.response_format.type, "json_object");
-  assert.equal(calls[1].input.max_tokens, 4096);
+  assert.equal(calls[1].input.max_tokens, 7000);
   assert.deepEqual(result, graph);
 });
 
