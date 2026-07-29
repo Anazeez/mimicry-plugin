@@ -38,11 +38,18 @@ const nodeTypeAliases = new Map([
   ["frame", "group"],
   ["container", "group"],
   ["section", "group"],
+  ["header", "group"],
+  ["footer", "group"],
+  ["row", "group"],
+  ["column", "group"],
   ["label", "text"],
   ["textbox", "text"],
   ["text_box", "text"],
   ["box", "rectangle"],
   ["rect", "rectangle"],
+  ["cell", "rectangle"],
+  ["border", "rectangle"],
+  ["panel", "rectangle"],
   ["roundedrect", "rounded_rectangle"],
   ["rounded_rect", "rounded_rectangle"],
   ["capsule", "rounded_rectangle"],
@@ -53,7 +60,13 @@ const nodeTypeAliases = new Map([
   ["table", "grid"],
   ["photo", "image"],
   ["portrait", "image"],
-  ["icon", "image"]
+  ["avatar", "image"],
+  ["icon", "image"],
+  ["logo", "image"],
+  ["symbol", "image"],
+  ["badge", "image"],
+  ["illustration", "image"],
+  ["graphic", "image"]
 ]);
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const bboxSchema = z

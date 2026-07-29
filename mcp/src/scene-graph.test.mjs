@@ -161,6 +161,11 @@ test("canonicalizes common visual node aliases without accepting unknown types",
           corner_radius: 20,
           opacity: 1
         }
+      },
+      {
+        id: "person",
+        type: "avatar",
+        bbox: [0.2, 0.2, 0.1, 0.1]
       }
     ]
   };
@@ -175,6 +180,7 @@ test("canonicalizes common visual node aliases without accepting unknown types",
   });
   assert.equal(result.nodes[0].type, "group");
   assert.equal(result.nodes[1].type, "rounded_rectangle");
+  assert.equal(result.nodes[2].type, "image");
 });
 
 test("derives deterministic z-order and editability for model nodes", async () => {
