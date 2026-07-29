@@ -228,6 +228,7 @@ export const sceneGraphJsonSchema = Object.freeze({
     },
     constraints: {
       type: "array",
+      maxItems: 48,
       items: {
         type: "object",
         additionalProperties: false,
@@ -338,7 +339,7 @@ export async function extractSceneGraph({ ai, reference, hints = {} }) {
       {
         role: "system",
         content:
-          "Extract a reference-agnostic editable page scene graph. Measure every visible region, text box, line, border, grid, shape, and image. Use normalized bounding boxes, stable IDs, explicit z-order, typography, colors, RTL/LTR direction, parent relationships, and geometric constraints. A semantic table may be a grid or independent shapes according to its actual visual construction. Never invent fixture-specific node types."
+          "Extract a reference-agnostic editable page scene graph. Measure every visible region, text box, line, border, grid, shape, and image. Use normalized bounding boxes, stable IDs, explicit z-order, typography, colors, RTL/LTR direction, and parent relationships. Add no more than 48 high-value geometric constraints; prioritize complete nodes over redundant pairwise constraints. A semantic table may be a grid or independent shapes according to its actual visual construction. Never invent fixture-specific node types."
       },
       {
         role: "user",
@@ -357,7 +358,7 @@ export async function extractSceneGraph({ ai, reference, hints = {} }) {
     response_format: sceneGraphResponseFormat,
     chat_template_kwargs: { thinking: false },
     temperature: 0,
-    max_completion_tokens: 4200
+    max_completion_tokens: 8192
   });
   let parsed;
   try {
@@ -405,7 +406,7 @@ export async function correctSceneGraph({
     response_format: sceneGraphResponseFormat,
     chat_template_kwargs: { thinking: false },
     temperature: 0,
-    max_completion_tokens: 4200
+    max_completion_tokens: 8192
   });
   try {
     return sceneGraphSchema.parse(parseVisionResponse(response));
