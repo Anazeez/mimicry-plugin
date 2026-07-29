@@ -13,3 +13,9 @@ export const artifactJobPath = (jobId) => {
   if (!isArtifactJobId(jobId)) throw new Error("invalid artifact job id");
   return `/jobs/${jobId}`;
 };
+
+export const withWorkflowStatus = (record, workflow) => ({
+  ...record,
+  workflow_status:
+    typeof workflow?.status === "string" ? workflow.status : "unknown",
+});

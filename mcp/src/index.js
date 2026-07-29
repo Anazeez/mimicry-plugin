@@ -12,6 +12,7 @@ import {
   artifactJobPath,
   isArtifactJobId,
   jobStorageKey,
+  withWorkflowStatus,
 } from "./job-capability.js";
 import { executeReferencePipeline } from "./pipeline.js";
 import {
@@ -261,14 +262,24 @@ export class ArtifactRendererContainer extends Container {
 
 export class ArtifactRenderWorkflow extends WorkflowEntrypoint {
   async run(event, step) {
-    return step.do(
-      "render and validate editable DOCX",
-      {
-        retries: { limit: 0 },
-        timeout: "15 minutes",
-      },
-      () => runArtifactJob(this.env, event.payload),
-    );
+    try {
+      return await step.do(
+        "render and validate editable DOCX",
+        {
+          retries: { limit: 0 },
+          timeout: "15 minutes",
+        },
+        () => runArtifactJob(this.env, event.payload),
+      );
+    } catch (error) {
+      const result = {
+        status: "FAILED",
+        message: UNAVAILABLE,
+        diagnostic: `WORKFLOW_FAILED: ${safeFailureDiagnostic(error)}`,
+      };
+      await writeArtifactJobForEnv(this.env, event.payload.jobId, result);
+      return result;
+    }
   }
 }
 
@@ -546,9 +557,27 @@ export default {
       const store = env.ARTIFACT_STORE.get(
         env.ARTIFACT_STORE.idFromName("global"),
       );
-      return store.fetch(
+      const jobResponse = await store.fetch(
         new Request(`https://artifact-store/job-get/${jobId}`),
       );
+      if (!jobResponse.ok) return jobResponse;
+      const record = await jobResponse.json();
+      if (record.status !== "PROCESSING") {
+        return Response.json(record, {
+          headers: { "cache-control": "private, no-store" },
+        });
+      }
+      let workflowStatus;
+      try {
+        workflowStatus = await (
+          await env.ARTIFACT_WORKFLOW.get(jobId)
+        ).status();
+      } catch {
+        workflowStatus = { status: "unknown" };
+      }
+      return Response.json(withWorkflowStatus(record, workflowStatus), {
+        headers: { "cache-control": "private, no-store" },
+      });
     }
     if (request.method === "OPTIONS" && url.pathname === "/mcp") {
       return new Response(null, {
