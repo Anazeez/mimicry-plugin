@@ -106,6 +106,15 @@ const safeFilename = (value) => {
     : `${normalized}.docx`;
 };
 
+const safeFailureDiagnostic = (error) => {
+  const raw = String(error?.message || error?.name || "unknown runtime failure")
+    .replace(/https?:\/\/\S+/gi, "[url]")
+    .replace(/[A-Za-z0-9_-]{32,}/g, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim();
+  return raw.slice(0, 240);
+};
+
 export class ArtifactStore extends DurableObject {
   async fetch(request) {
     const url = new URL(request.url);
@@ -257,17 +266,20 @@ export class ArtifactMimicryMCP extends McpAgent {
             ]
           };
         } catch (error) {
-          const message = error instanceof ContainerRenderError ? error.message : UNAVAILABLE;
+          const diagnostic = safeFailureDiagnostic(error);
+          const message =
+            error instanceof ContainerRenderError
+              ? error.message
+              : `${UNAVAILABLE}\nDiagnostic: ${diagnostic}`;
           return {
             isError: true,
             content: [{ type: "text", text: message }],
-            ...(error instanceof ContainerRenderError && error.report
-              ? {
-                  _meta: {
-                    "artifact-mimicry/validation-report": error.report
-                  }
-                }
-              : {})
+            _meta: {
+              ...(error instanceof ContainerRenderError && error.report
+                ? { "artifact-mimicry/validation-report": error.report }
+                : {}),
+              "artifact-mimicry/failure-diagnostic": diagnostic
+            }
           };
         }
       }

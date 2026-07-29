@@ -280,12 +280,14 @@ export async function extractSceneGraph({ ai, reference, hints = {} }) {
       }
     ],
     image,
+    // Cloudflare's vision endpoint rejects some otherwise-valid complex JSON
+    // Schema keywords before inference. Request JSON mode here and keep the
+    // stricter Zod scene-graph validation immediately below.
     response_format: {
-      type: "json_schema",
-      json_schema: sceneGraphJsonSchema
+      type: "json_object"
     },
     temperature: 0,
-    max_tokens: 7000
+    max_tokens: 4096
   });
   let parsed;
   try {
@@ -323,11 +325,10 @@ export async function correctSceneGraph({
     ],
     image,
     response_format: {
-      type: "json_schema",
-      json_schema: sceneGraphJsonSchema
+      type: "json_object"
     },
     temperature: 0,
-    max_tokens: 7000
+    max_tokens: 4096
   });
   try {
     return sceneGraphSchema.parse(parseVisionResponse(response));
