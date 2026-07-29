@@ -5,13 +5,18 @@ import shutil
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import zipfile
 
 from PIL import Image, ImageDraw
 
 from container.app.schemas import validate_scene_graph
-from container.app.renderer import _office_endpoint, render_scene, inspect_rendered_docx
+from container.app.renderer import (
+    _anchor_to_first_page,
+    _office_endpoint,
+    inspect_rendered_docx,
+    render_scene,
+)
 from container.app.server import FidelityValidationError, RenderRequestError, render_request
 
 
@@ -26,6 +31,34 @@ class NativeRendererTests(unittest.TestCase):
         self.assertTrue(accept.startswith("pipe,name=mimicry_"))
         self.assertEqual(connection_url, "uno:" + accept)
         self.assertNotIn("socket", accept)
+
+    def test_shapes_are_anchored_to_absolute_page_coordinates(self):
+        shape = Mock()
+        shape.setPropertyValue = Mock()
+        fake_uno = Mock()
+        fake_uno.Enum.side_effect = lambda namespace, value: (namespace, value)
+        fake_uno.getConstantByName.side_effect = lambda name: {
+            "com.sun.star.text.HoriOrientation.NONE": 0,
+            "com.sun.star.text.VertOrientation.NONE": 0,
+            "com.sun.star.text.RelOrientation.PAGE_FRAME": 7,
+        }[name]
+
+        with patch("container.app.renderer.uno", fake_uno):
+            _anchor_to_first_page(shape)
+
+        assigned = {
+            call.args[0]: call.args[1]
+            for call in shape.setPropertyValue.call_args_list
+        }
+        self.assertEqual(assigned["AnchorPageNo"], 1)
+        self.assertEqual(assigned["HoriOrient"], 0)
+        self.assertEqual(assigned["VertOrient"], 0)
+        self.assertEqual(assigned["HoriOrientRelation"], 7)
+        self.assertEqual(assigned["VertOrientRelation"], 7)
+        self.assertEqual(
+            assigned["Surround"],
+            ("com.sun.star.text.WrapTextMode", "THROUGH"),
+        )
 
     def _reference(self, path):
         image = Image.new("RGB", (800, 560), "white")

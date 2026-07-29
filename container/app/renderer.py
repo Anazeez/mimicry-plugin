@@ -231,6 +231,31 @@ def _anchor_to_first_page(shape):
         uno.Enum("com.sun.star.text.TextContentAnchorType", "AT_PAGE"),
     )
     _set_if_supported(shape, "AnchorPageNo", 1)
+    # Writer otherwise exports some drawing objects relative to the anchor
+    # paragraph.  On DOCX reopen that can move a shape even though its original
+    # XShape.Position was page-relative.  Make the OOXML round trip explicit:
+    # absolute offsets, measured from the complete page frame, with no text-flow
+    # wrapping influence.
+    _set_if_supported(
+        shape,
+        "HoriOrient",
+        uno.getConstantByName("com.sun.star.text.HoriOrientation.NONE"),
+    )
+    _set_if_supported(
+        shape,
+        "VertOrient",
+        uno.getConstantByName("com.sun.star.text.VertOrientation.NONE"),
+    )
+    page_frame = uno.getConstantByName(
+        "com.sun.star.text.RelOrientation.PAGE_FRAME"
+    )
+    _set_if_supported(shape, "HoriOrientRelation", page_frame)
+    _set_if_supported(shape, "VertOrientRelation", page_frame)
+    _set_if_supported(
+        shape,
+        "Surround",
+        uno.Enum("com.sun.star.text.WrapTextMode", "THROUGH"),
+    )
 
 
 def _add_text(document, draw_page, node, page_width, page_height):
