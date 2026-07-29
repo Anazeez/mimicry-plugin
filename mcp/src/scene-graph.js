@@ -12,7 +12,7 @@ const nodeTypes = [
   "grid",
   "image"
 ];
-const VISION_MODEL = "@cf/google/gemma-4-26b-a4b-it";
+const VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
 const constraintTypes = [
   "inside",
   "align_left",
@@ -317,15 +317,9 @@ export async function extractSceneGraph({ ai, reference, hints = {} }) {
         ]
       }
     ],
-    // Cloudflare's vision endpoint rejects some otherwise-valid complex JSON
-    // Schema keywords before inference. Request JSON mode here and keep the
-    // stricter Zod scene-graph validation immediately below.
-    response_format: {
-      type: "json_schema",
-      json_schema: sceneGraphJsonSchema
-    },
+    guided_json: sceneGraphJsonSchema,
     temperature: 0,
-    max_completion_tokens: 5000
+    max_tokens: 4200
   });
   let parsed;
   try {
@@ -370,12 +364,9 @@ export async function correctSceneGraph({
         ]
       }
     ],
-    response_format: {
-      type: "json_schema",
-      json_schema: sceneGraphJsonSchema
-    },
+    guided_json: sceneGraphJsonSchema,
     temperature: 0,
-    max_completion_tokens: 5000
+    max_tokens: 4200
   });
   try {
     return sceneGraphSchema.parse(parseVisionResponse(response));

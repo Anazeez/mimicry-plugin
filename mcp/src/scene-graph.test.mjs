@@ -45,15 +45,14 @@ test("sends the actual reference image to Workers AI and validates its scene gra
   });
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].model, "@cf/google/gemma-4-26b-a4b-it");
+  assert.equal(calls[0].model, "@cf/meta/llama-4-scout-17b-16e-instruct");
   assert.match(
     calls[0].input.messages[1].content[1].image_url.url,
     /^data:image\/jpeg;base64,/
   );
   assert.equal(calls[0].input.temperature, 0);
-  assert.equal(calls[0].input.response_format.type, "json_schema");
-  assert.ok(calls[0].input.response_format.json_schema.properties.nodes);
-  assert.equal(calls[0].input.max_completion_tokens, 5000);
+  assert.ok(calls[0].input.guided_json.properties.nodes);
+  assert.equal(calls[0].input.max_tokens, 4200);
   assert.deepEqual(result, graph);
 });
 
