@@ -64,6 +64,10 @@ jobs:
               { mode: 0o600 }
             );
           '
+      - name: Verify Cloudflare Containers permission before upload
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler containers list --config deploy.wrangler.jsonc --json
       - name: Configure owner-only GitHub OAuth secrets
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
