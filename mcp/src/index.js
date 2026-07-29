@@ -233,6 +233,56 @@ export class ArtifactMimicryMCP extends McpAgent {
     } while (true);
   }
 
+  async artifactJobResponse(jobId, longPoll = true) {
+    const record = await this.readArtifactJob(jobId, longPoll);
+    if (!record) {
+      return {
+        isError: true,
+        content: [{ type: "text", text: "Artifact Mimicry job not found." }]
+      };
+    }
+    if (record.status === "FAILED") {
+      return {
+        isError: true,
+        content: [{ type: "text", text: record.message }],
+        _meta: {
+          ...(record.validation_report
+            ? { "artifact-mimicry/validation-report": record.validation_report }
+            : {}),
+          "artifact-mimicry/failure-diagnostic": record.diagnostic
+        }
+      };
+    }
+    if (record.status === "PROCESSING") {
+      return {
+        structuredContent: { status: "PROCESSING", job_id: jobId },
+        content: [
+          {
+            type: "text",
+            text: `Rendering is still in progress. Call await_result with job_id ${jobId}. If await_result is not visible in a cached connector session, call execute again with expectations.job_id set to ${jobId}.`
+          }
+        ]
+      };
+    }
+    const structuredContent = { ...record, job_id: jobId };
+    return {
+      structuredContent,
+      content: [
+        {
+          type: "text",
+          text: `Validated editable DOCX created: ${record.download_url}`
+        },
+        {
+          type: "resource_link",
+          uri: record.download_url,
+          name: record.filename,
+          mimeType: DOCX_MIME,
+          description: "Fresh validated editable Artifact Mimicry DOCX"
+        }
+      ]
+    };
+  }
+
   async init() {
     this.server.registerTool(
       "execute",
@@ -256,13 +306,17 @@ export class ArtifactMimicryMCP extends McpAgent {
             .unknown()
             .optional()
             .describe(
-              "Backward-compatible installed-connector field. It cannot override measured geometry or validation."
+              "Backward-compatible installed-connector field. It cannot override measured geometry or validation. A cached connector may pass the returned job_id here as expectations.job_id to await the same job."
             ),
           filename: z.string().optional().describe("Desired .docx filename.")
         },
         outputSchema: {
-          status: z.literal("PROCESSING"),
-          job_id: z.string()
+          status: z.enum(["PROCESSING", "PASS"]),
+          job_id: z.string(),
+          filename: z.string().optional(),
+          download_url: z.string().url().optional(),
+          expires_at: z.string().optional(),
+          validation: z.record(z.string(), z.boolean()).optional()
         },
         annotations: {
           readOnlyHint: false,
@@ -275,9 +329,20 @@ export class ArtifactMimicryMCP extends McpAgent {
         reference_file: referenceFile,
         hints,
         task,
+        expectations,
         filename
       }) => {
         try {
+          if (
+            expectations &&
+            typeof expectations === "object" &&
+            typeof expectations.job_id === "string"
+          ) {
+            return this.artifactJobResponse(
+              z.string().uuid().parse(expectations.job_id),
+              true
+            );
+          }
           referenceFileSchema.parse(referenceFile);
           resolveMimicryHints({ hints, task });
           const jobId = crypto.randomUUID();
@@ -346,55 +411,7 @@ export class ArtifactMimicryMCP extends McpAgent {
           openWorldHint: true
         }
       },
-      async ({ job_id: jobId }) => {
-        const record = await this.readArtifactJob(jobId, true);
-        if (!record) {
-          return {
-            isError: true,
-            content: [{ type: "text", text: "Artifact Mimicry job not found." }]
-          };
-        }
-        if (record.status === "FAILED") {
-          return {
-            isError: true,
-            content: [{ type: "text", text: record.message }],
-            _meta: {
-              ...(record.validation_report
-                ? { "artifact-mimicry/validation-report": record.validation_report }
-                : {}),
-              "artifact-mimicry/failure-diagnostic": record.diagnostic
-            }
-          };
-        }
-        if (record.status === "PROCESSING") {
-          return {
-            structuredContent: { status: "PROCESSING", job_id: jobId },
-            content: [
-              {
-                type: "text",
-                text: `Rendering is still in progress. Call await_result again with job_id ${jobId}.`
-              }
-            ]
-          };
-        }
-        const structuredContent = { ...record, job_id: jobId };
-        return {
-          structuredContent,
-          content: [
-            {
-              type: "text",
-              text: `Validated editable DOCX created: ${record.download_url}`
-            },
-            {
-              type: "resource_link",
-              uri: record.download_url,
-              name: record.filename,
-              mimeType: DOCX_MIME,
-              description: "Fresh validated editable Artifact Mimicry DOCX"
-            }
-          ]
-        };
-      }
+      async ({ job_id: jobId }) => this.artifactJobResponse(jobId, true)
     );
   }
 }
