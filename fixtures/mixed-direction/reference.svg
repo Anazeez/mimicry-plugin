@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
+  <rect width="1200" height="800" fill="#f5f7f6"/>
+  <rect x="60" y="60" width="1080" height="680" rx="24" fill="#ffffff" stroke="#244840" stroke-width="5"/>
+  <text x="1080" y="150" text-anchor="end" direction="rtl" unicode-bidi="bidi-override" font-family="Arial" font-size="58" font-weight="700" fill="#244840">تقرير المشروع</text>
+  <text x="120" y="150" font-family="Arial" font-size="34" font-weight="700" fill="#d46a3f">PROJECT REPORT</text>
+  <line x1="120" y1="200" x2="1080" y2="200" stroke="#d8dedb" stroke-width="4"/>
+  <rect x="120" y="260" width="450" height="330" rx="24" fill="#e7f0ed"/>
+  <text x="345" y="330" text-anchor="middle" font-family="Arial" font-size="30" font-weight="700" fill="#244840">Progress</text>
+  <rect x="180" y="390" width="330" height="42" rx="21" fill="#8fbbae"/>
+  <rect x="180" y="468" width="260" height="42" rx="21" fill="#d46a3f"/>
+  <text x="1040" y="310" text-anchor="end" direction="rtl" unicode-bidi="bidi-override" font-family="Arial" font-size="32" font-weight="700" fill="#244840">ملخص الإنجازات</text>
+  <text x="1040" y="380" text-anchor="end" direction="rtl" unicode-bidi="bidi-override" font-family="Arial" font-size="25" fill="#48675f">تم إنجاز المرحلة الأولى بنجاح</text>
+  <text x="1040" y="438" text-anchor="end" direction="rtl" unicode-bidi="bidi-override" font-family="Arial" font-size="25" fill="#48675f">Next milestone: Design review</text>
+</svg>
