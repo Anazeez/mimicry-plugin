@@ -45,7 +45,7 @@ test("sends the actual reference image to Workers AI and validates its scene gra
   });
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].model, "@cf/moonshotai/kimi-k2.6");
+  assert.equal(calls[0].model, "@cf/google/gemma-4-26b-a4b-it");
   assert.match(
     calls[0].input.messages[1].content[1].image_url.url,
     /^data:image\/jpeg;base64,/
@@ -53,7 +53,7 @@ test("sends the actual reference image to Workers AI and validates its scene gra
   assert.equal(calls[0].input.temperature, 0);
   assert.equal(calls[0].input.response_format.type, "json_schema");
   assert.ok(calls[0].input.response_format.json_schema.properties.nodes);
-  assert.equal(calls[0].input.max_tokens, 7000);
+  assert.equal(calls[0].input.max_completion_tokens, 5000);
   assert.deepEqual(result, graph);
 });
 

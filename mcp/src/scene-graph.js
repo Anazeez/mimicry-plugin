@@ -12,7 +12,7 @@ const nodeTypes = [
   "grid",
   "image"
 ];
-const VISION_MODEL = "@cf/moonshotai/kimi-k2.6";
+const VISION_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 const constraintTypes = [
   "inside",
   "align_left",
@@ -324,9 +324,8 @@ export async function extractSceneGraph({ ai, reference, hints = {} }) {
       type: "json_schema",
       json_schema: sceneGraphJsonSchema
     },
-    chat_template_kwargs: { thinking: false },
     temperature: 0,
-    max_tokens: 7000
+    max_completion_tokens: 5000
   });
   let parsed;
   try {
@@ -375,9 +374,8 @@ export async function correctSceneGraph({
       type: "json_schema",
       json_schema: sceneGraphJsonSchema
     },
-    chat_template_kwargs: { thinking: false },
     temperature: 0,
-    max_tokens: 7000
+    max_completion_tokens: 5000
   });
   try {
     return sceneGraphSchema.parse(parseVisionResponse(response));
