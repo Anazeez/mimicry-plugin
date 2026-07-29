@@ -44,8 +44,8 @@ export async function extractAndRenderInContainer({
   renderer,
   reference,
   hints = {},
-  timeoutMs = 180_000,
-  retryDelayMs = 250
+  timeoutMs = 360_000,
+  retryDelayMs = 5_000
 }) {
   if (!renderer?.fetch) {
     throw new ContainerRenderError(
@@ -75,7 +75,7 @@ export async function extractAndRenderInContainer({
   const startedAt = Date.now();
   let response;
   try {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
       const controller = new AbortController();
       const remainingMs = Math.max(1, timeoutMs - (Date.now() - startedAt));
       response = await withTimeout(
@@ -83,7 +83,7 @@ export async function extractAndRenderInContainer({
         controller,
         remainingMs
       );
-      if (response.status !== 503 || attempt === 2) break;
+      if (response.status !== 503 || attempt === 4) break;
       try {
         await response.body?.cancel();
       } catch {

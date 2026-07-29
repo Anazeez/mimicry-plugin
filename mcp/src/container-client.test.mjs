@@ -104,7 +104,7 @@ test("retains a failed render preview for owner diagnostics", async () => {
   );
 });
 
-test("retries a cold renderer once with a fresh request body", async () => {
+test("retries a cold renderer through a bounded provisioning window with fresh bodies", async () => {
   const archive = zipSync({
     "artifact.docx": new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
     "manifest.json": strToU8(
@@ -115,7 +115,7 @@ test("retries a cold renderer once with a fresh request body", async () => {
   const renderer = {
     async fetch(request) {
       requests.push(request);
-      if (requests.length === 1) {
+      if (requests.length < 5) {
         return new Response("container starting", {
           status: 503,
           headers: { "content-type": "text/plain; charset=utf-8" }
@@ -134,8 +134,8 @@ test("retries a cold renderer once with a fresh request body", async () => {
     hints: {},
     retryDelayMs: 0
   });
-  assert.equal(requests.length, 2);
-  assert.notEqual(requests[0], requests[1]);
+  assert.equal(requests.length, 5);
+  assert.equal(new Set(requests).size, 5);
   assert.deepEqual(Array.from(result.bytes), [0x50, 0x4b, 0x03, 0x04]);
 });
 
@@ -167,5 +167,5 @@ test("reports the bounded HTTP boundary after cold-start retries are exhausted",
       return true;
     }
   );
-  assert.equal(calls, 3);
+  assert.equal(calls, 5);
 });
