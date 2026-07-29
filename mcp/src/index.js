@@ -12,6 +12,7 @@ import {
   artifactJobPath,
   isArtifactJobId,
   jobStorageKey,
+  normalizeArtifactJobFailure,
   withWorkflowStatus,
 } from "./job-capability.js";
 import { executeReferencePipeline } from "./pipeline.js";
@@ -31,6 +32,17 @@ const UNAVAILABLE =
 const MAX_ARTIFACT_AGE_MS = 24 * 60 * 60 * 1000;
 const JOB_POLL_MS = 2_000;
 const JOB_LONG_POLL_MS = 95_000;
+const ARTIFACT_TOOL_STATUSES = [
+  "PROCESSING",
+  "PASS",
+  "EDITABILITY_FAILED",
+  "FIDELITY_FAILED",
+  "VALIDATION_INCOMPLETE",
+  "PACKAGE_INVALID",
+  "GENERATION_FAILED",
+  "UNSUPPORTED_NATIVE_RECONSTRUCTION",
+  "RASTER_FALLBACK_PROHIBITED",
+];
 const OPENAI_APPS_CHALLENGE_TOKEN =
   "qFMgLq4heF1lgZGB2Nr2mhWSXVwKFkqiiBr95gI1tqc";
 
@@ -204,17 +216,18 @@ const runArtifactJob = async (
     await writeArtifactJobForEnv(env, jobId, result);
     return result;
   } catch (error) {
-    const result = {
-      status: "FAILED",
+    const result = normalizeArtifactJobFailure({
+      code: error instanceof ContainerRenderError ? error.code : error?.code,
       message:
         error instanceof ContainerRenderError
           ? error.message
           : UNAVAILABLE,
       diagnostic: safeFailureDiagnostic(error),
-      ...(error instanceof ContainerRenderError && error.report
-        ? { validation_report: compactValidationReport(error.report) }
-        : {}),
-    };
+      report:
+        error instanceof ContainerRenderError && error.report
+          ? compactValidationReport(error.report)
+          : null,
+    });
     await writeArtifactJobForEnv(env, jobId, result);
     return result;
   }
@@ -361,15 +374,27 @@ export class ArtifactMimicryMCP extends McpAgent {
       };
     }
     if (record.status === "FAILED") {
+      const status = ARTIFACT_TOOL_STATUSES.includes(record.error_code)
+        ? record.error_code
+        : "VALIDATION_INCOMPLETE";
       return {
-        isError: true,
-        content: [{ type: "text", text: record.message }],
+        structuredContent: {
+          status,
+          job_id: jobId,
+          message: record.message,
+          diagnostic: record.diagnostic,
+          validation_report: record.validation_report,
+        },
+        content: [
+          {
+            type: "text",
+            text: `${status}: ${record.message}`,
+          },
+        ],
         _meta: {
-          ...(record.validation_report
-            ? { "artifact-mimicry/validation-report": record.validation_report }
-            : {}),
-          "artifact-mimicry/failure-diagnostic": record.diagnostic
-        }
+          "artifact-mimicry/validation-report": record.validation_report,
+          "artifact-mimicry/failure-diagnostic": record.diagnostic,
+        },
       };
     }
     if (record.status === "PROCESSING") {
@@ -432,13 +457,15 @@ export class ArtifactMimicryMCP extends McpAgent {
           filename: z.string().optional().describe("Desired .docx filename.")
         },
         outputSchema: {
-          status: z.enum(["PROCESSING", "PASS"]),
+          status: z.enum(ARTIFACT_TOOL_STATUSES),
           job_id: z.string().optional(),
           filename: z.string().optional(),
           download_url: z.string().url().optional(),
           expires_at: z.string().optional(),
           validation: z.record(z.string(), z.boolean()).optional(),
-          validation_report: z.unknown().optional()
+          validation_report: z.unknown().optional(),
+          message: z.string().optional(),
+          diagnostic: z.string().optional(),
         },
         annotations: {
           readOnlyHint: false,
@@ -530,13 +557,15 @@ export class ArtifactMimicryMCP extends McpAgent {
           job_id: z.string().uuid()
         },
         outputSchema: {
-          status: z.enum(["PROCESSING", "PASS"]),
+          status: z.enum(ARTIFACT_TOOL_STATUSES),
           job_id: z.string(),
           filename: z.string().optional(),
           download_url: z.string().url().optional(),
           expires_at: z.string().optional(),
           validation: z.record(z.string(), z.boolean()).optional(),
-          validation_report: z.unknown().optional()
+          validation_report: z.unknown().optional(),
+          message: z.string().optional(),
+          diagnostic: z.string().optional(),
         },
         annotations: {
           readOnlyHint: true,

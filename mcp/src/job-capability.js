@@ -14,6 +14,69 @@ export const artifactJobPath = (jobId) => {
   return `/jobs/${jobId}`;
 };
 
+const EVIDENCE_BACKED_FAILURE_STATUSES = new Set([
+  "EDITABILITY_FAILED",
+  "FIDELITY_FAILED",
+  "VALIDATION_INCOMPLETE",
+  "PACKAGE_INVALID",
+  "GENERATION_FAILED",
+  "UNSUPPORTED_NATIVE_RECONSTRUCTION",
+  "RASTER_FALLBACK_PROHIBITED",
+]);
+
+const incompleteValidationReport = (errorCode) => ({
+  status: "VALIDATION_INCOMPLETE",
+  version: null,
+  gates: {
+    G_PACKAGE_MEDIA_AUDIT: false,
+    S_EDITABILITY: false,
+  },
+  editability: {
+    passed: false,
+    evidence_available: false,
+  },
+  findings: [
+    {
+      gate: "G_PACKAGE_MEDIA_AUDIT",
+      measured: {
+        validation_evidence_available: false,
+        error_code: String(errorCode || "UNKNOWN_FAILURE"),
+      },
+      required: {
+        validation_evidence_available: true,
+      },
+      node_ids: [],
+    },
+  ],
+});
+
+export const normalizeArtifactJobFailure = ({
+  code,
+  message,
+  diagnostic,
+  report,
+} = {}) => {
+  const hasEvidence = report && typeof report === "object";
+  const reportedStatus =
+    hasEvidence && EVIDENCE_BACKED_FAILURE_STATUSES.has(report.status)
+      ? report.status
+      : hasEvidence && EVIDENCE_BACKED_FAILURE_STATUSES.has(code)
+        ? code
+        : "VALIDATION_INCOMPLETE";
+  return {
+    status: "FAILED",
+    error_code: reportedStatus,
+    message: String(
+      message ||
+        "Artifact Reconstructor validation did not produce a usable artifact.",
+    ),
+    diagnostic: String(diagnostic || code || "UNKNOWN_FAILURE"),
+    validation_report: hasEvidence
+      ? report
+      : incompleteValidationReport(code),
+  };
+};
+
 export const withWorkflowStatus = (record, workflow) => {
   const error =
     workflow?.error && typeof workflow.error === "object"
