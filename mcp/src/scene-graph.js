@@ -153,7 +153,29 @@ export const sceneGraphJsonSchema = Object.freeze({
       minItems: 1,
       items: {
         type: "object",
+        additionalProperties: false,
         required: ["id", "type", "bbox", "z", "editable"],
+        allOf: [
+          {
+            if: { properties: { type: { const: "text" } }, required: ["type"] },
+            then: { required: ["text"] }
+          },
+          {
+            if: {
+              properties: { type: { enum: ["rectangle", "rounded_rectangle", "ellipse", "line", "polygon", "grid", "image"] } },
+              required: ["type"]
+            },
+            then: { required: ["style"] }
+          },
+          {
+            if: { properties: { type: { const: "grid" } }, required: ["type"] },
+            then: { required: ["rows", "columns"] }
+          },
+          {
+            if: { properties: { type: { const: "image" } }, required: ["type"] },
+            then: { required: ["content_ref"] }
+          }
+        ],
         properties: {
           id: { type: "string", minLength: 1 },
           type: { enum: nodeTypes },
@@ -168,6 +190,8 @@ export const sceneGraphJsonSchema = Object.freeze({
           parent: { type: "string" },
           style: {
             type: "object",
+            additionalProperties: false,
+            required: ["fill", "stroke", "stroke_width", "corner_radius", "opacity"],
             properties: {
               fill: { type: ["string", "null"] },
               stroke: { type: ["string", "null"] },
@@ -178,6 +202,8 @@ export const sceneGraphJsonSchema = Object.freeze({
           },
           text: {
             type: "object",
+            additionalProperties: false,
+            required: ["value", "direction", "font_family", "font_size_pt", "weight", "align", "color"],
             properties: {
               value: { type: "string" },
               direction: { enum: ["ltr", "rtl", "mixed"] },
@@ -204,6 +230,7 @@ export const sceneGraphJsonSchema = Object.freeze({
       type: "array",
       items: {
         type: "object",
+        additionalProperties: false,
         required: ["type", "source", "target", "tolerance"],
         properties: {
           type: { enum: constraintTypes },
