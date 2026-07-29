@@ -252,7 +252,13 @@ const parseVisionResponse = (response) => {
       // Try the next deterministic extraction form.
     }
   }
-  throw new Error("SCENE_RESPONSE: Workers AI returned invalid JSON");
+  const excerpt = (value) =>
+    JSON.stringify(value)
+      .replace(/[A-Za-z0-9_-]{32,}/g, "[redacted]")
+      .slice(0, 180);
+  throw new Error(
+    `SCENE_RESPONSE: invalid JSON length=${raw.length} start=${excerpt(raw.slice(0, 120))} end=${excerpt(raw.slice(-120))}`
+  );
 };
 
 const stableSceneError = (error) => {
