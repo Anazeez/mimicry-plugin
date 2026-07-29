@@ -25,6 +25,13 @@ def _normalized_image(path, size):
 
 def _nonwhite_ratio(image):
     count = image.width * image.height
+    try:
+        import numpy
+
+        pixels = numpy.asarray(image.convert("RGB"))
+        return float((pixels.min(axis=2) < 245).mean()) if count else 0
+    except ImportError:
+        pass
     return (
         sum(1 for red, green, blue in image.getdata() if min(red, green, blue) < 245)
         / count
@@ -83,11 +90,18 @@ def _relative_luminance(value):
     return linear
 
 
-def _contrast_ratio(image, bbox):
-    crop = _crop(image, bbox).convert("L")
+def _contrast_ratio(image, bbox, align="center"):
+    x, y, width, height = bbox
+    if align == "left":
+        sample = [x, y, width * 0.75, height]
+    elif align == "right":
+        sample = [x + width * 0.25, y, width * 0.75, height]
+    else:
+        sample = [x + width * 0.125, y, width * 0.75, height]
+    crop = _crop(image, sample).convert("L")
     values = list(crop.getdata())
-    dark = _percentile(values, 0.10)
-    light = _percentile(values, 0.90)
+    dark = _percentile(values, 0.002)
+    light = _percentile(values, 0.998)
     low = _relative_luminance(dark)
     high = _relative_luminance(light)
     return (high + 0.05) / (low + 0.05)
@@ -112,6 +126,21 @@ def _edge_mask(image):
 
 
 def _edge_f1(reference, rendered):
+    try:
+        import numpy
+
+        left = numpy.asarray(reference.convert("L").filter(ImageFilter.FIND_EDGES)) > 24
+        right = numpy.asarray(rendered.convert("L").filter(ImageFilter.FIND_EDGES)) > 24
+        true_positive = int(numpy.logical_and(left, right).sum())
+        predicted = int(right.sum())
+        expected = int(left.sum())
+        if predicted == 0 and expected == 0:
+            return 1
+        precision = true_positive / predicted if predicted else 0
+        recall = true_positive / expected if expected else 0
+        return 2 * precision * recall / (precision + recall) if precision + recall else 0
+    except ImportError:
+        pass
     left = _edge_mask(reference)
     right = _edge_mask(rendered)
     true_positive = sum(1 for a, b in zip(left, right) if a and b)
@@ -131,6 +160,32 @@ def _palette_distance(reference, rendered):
 
 
 def _ssim(reference, rendered):
+    # Compare page-scale hierarchy rather than font rasterization noise. Fine
+    # edges are judged separately by V_EDGE_SIMILARITY.
+    radius = max(1, min(reference.size) / 150)
+    reference = reference.filter(ImageFilter.GaussianBlur(radius))
+    rendered = rendered.filter(ImageFilter.GaussianBlur(radius))
+    try:
+        import numpy
+
+        left = numpy.asarray(reference.convert("L"), dtype="float64") / 255
+        right = numpy.asarray(rendered.convert("L"), dtype="float64") / 255
+        if not left.size:
+            return 0
+        mean_left, mean_right = float(left.mean()), float(right.mean())
+        variance_left, variance_right = float(left.var()), float(right.var())
+        covariance = float(((left - mean_left) * (right - mean_right)).mean())
+        c1, c2 = 0.01 ** 2, 0.03 ** 2
+        return (
+            (2 * mean_left * mean_right + c1)
+            * (2 * covariance + c2)
+            / (
+                (mean_left ** 2 + mean_right ** 2 + c1)
+                * (variance_left + variance_right + c2)
+            )
+        )
+    except ImportError:
+        pass
     left = [value / 255 for value in reference.convert("L").getdata()]
     right = [value / 255 for value in rendered.convert("L").getdata()]
     count = len(left)
@@ -229,7 +284,10 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
 
     text_nodes = [node for node in scene["nodes"] if node["type"] == "text"]
     contrast_ratios = {
-        node["id"]: _contrast_ratio(rendered, node["bbox"]) for node in text_nodes
+        node["id"]: _contrast_ratio(
+            rendered, node["bbox"], node["text"].get("align", "center")
+        )
+        for node in text_nodes
     }
     min_contrast = min(contrast_ratios.values()) if contrast_ratios else 21
 

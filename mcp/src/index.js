@@ -127,6 +127,22 @@ const safeFailureDiagnostic = (error) => {
   return raw.slice(0, 240);
 };
 
+const compactValidationReport = (report) => {
+  if (!report || typeof report !== "object") return null;
+  const scalarMetrics = Object.fromEntries(
+    Object.entries(report.metrics || {}).filter(
+      ([, value]) => ["number", "string", "boolean"].includes(typeof value) || value === null,
+    ),
+  );
+  return {
+    status: report.status,
+    version: report.version,
+    gates: report.gates || {},
+    metrics: scalarMetrics,
+    findings: Array.isArray(report.findings) ? report.findings.slice(0, 24) : [],
+  };
+};
+
 const artifactStoreForEnv = (env) =>
   env.ARTIFACT_STORE.get(env.ARTIFACT_STORE.idFromName("global"));
 
@@ -185,13 +201,7 @@ const runArtifactJob = async (
           : UNAVAILABLE,
       diagnostic: safeFailureDiagnostic(error),
       ...(error instanceof ContainerRenderError && error.report
-        ? { validation_report: error.report }
-        : {}),
-      ...(error instanceof ContainerRenderError && error.debugPreviewBase64
-        ? {
-            debug_preview_data_url:
-              `data:${error.debugPreviewMime || "image/jpeg"};base64,${error.debugPreviewBase64}`,
-          }
+        ? { validation_report: compactValidationReport(error.report) }
         : {}),
     };
     await writeArtifactJobForEnv(env, jobId, result);
