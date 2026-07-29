@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from PIL import Image, ImageDraw
 
@@ -90,8 +91,14 @@ class FidelityValidatorTests(unittest.TestCase):
                 for node in self.scene["nodes"]
             ],
         }
+        self.ocr_patcher = patch(
+            "container.app.validator._ocr_word_count",
+            side_effect=lambda _: 1,
+        )
+        self.ocr_patcher.start()
 
     def tearDown(self):
+        self.ocr_patcher.stop()
         self.directory.cleanup()
 
     def _draw(self, path, borders, text):
@@ -231,6 +238,22 @@ class FidelityValidatorTests(unittest.TestCase):
         self.assertIn("G_NATIVE_OBJECT_RATIO", report["gates"], report)
         self.assertFalse(report["gates"]["G_VISIBLE_TEXT_NATIVE"], report)
         self.assertFalse(report["gates"]["G_NATIVE_OBJECT_RATIO"], report)
+
+    def test_missing_rendered_text_fails_visual_text_coverage(self):
+        with patch(
+            "container.app.validator._ocr_word_count",
+            side_effect=(40, 10),
+        ):
+            report = validate_fidelity(
+                self.reference, self.good, self.scene, self.manifest
+            )
+
+        self.assertEqual(report["status"], "FIDELITY_FAILED", report)
+        self.assertFalse(report["gates"]["V_TEXT_COVERAGE"], report)
+        finding = next(
+            item for item in report["findings"] if item["gate"] == "V_TEXT_COVERAGE"
+        )
+        self.assertEqual(finding["measured"]["text_detection_ratio"], 0.25)
 
 
 if __name__ == "__main__":

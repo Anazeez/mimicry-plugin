@@ -239,6 +239,7 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
     thresholds = config["thresholds"]
     with Image.open(reference_path) as source:
         size = (max(300, source.width), max(200, source.height))
+        reference_aspect = source.width / source.height
     reference = _normalized_image(reference_path, size)
     rendered = _normalized_image(rendered_path, size)
 
@@ -291,6 +292,22 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
     }
     min_contrast = min(contrast_ratios.values()) if contrast_ratios else 21
 
+    reference_ocr_words = _ocr_word_count(reference_path)
+    rendered_ocr_words = _ocr_word_count(rendered_path)
+    ocr_available = (
+        isinstance(reference_ocr_words, int)
+        and isinstance(rendered_ocr_words, int)
+    )
+    text_detection_ratio = (
+        min(1.0, rendered_ocr_words / reference_ocr_words)
+        if ocr_available and reference_ocr_words > 0
+        else 1.0
+        if ocr_available
+        else None
+    )
+    page_aspect = float(scene["page"]["width"]) / float(scene["page"]["height"])
+    page_aspect_error = abs(page_aspect / reference_aspect - 1)
+
     metrics = {
         "nonwhite_ratio": _nonwhite_ratio(rendered),
         "bbox_max_error": max_geometry_error,
@@ -304,8 +321,10 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
         "edge_f1": _edge_f1(reference, rendered),
         "palette_distance": _palette_distance(reference, rendered),
         "ssim": _ssim(reference, rendered),
-        "reference_ocr_words": _ocr_word_count(reference_path),
-        "rendered_ocr_words": _ocr_word_count(rendered_path),
+        "reference_ocr_words": reference_ocr_words,
+        "rendered_ocr_words": rendered_ocr_words,
+        "text_detection_ratio": text_detection_ratio,
+        "page_aspect_error": page_aspect_error,
     }
     audit = manifest.get("package_audit")
     audit_complete = bool(
@@ -374,6 +393,9 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
         **editability_gates,
         "R_NONBLANK": metrics["nonwhite_ratio"] >= thresholds["nonwhite_ratio_min"],
         "R_SINGLE_PAGE": int(manifest.get("page_count", 0)) == 1,
+        "G_PAGE_GEOMETRY": (
+            page_aspect_error <= thresholds["page_aspect_error_max"]
+        ),
         "G_ALIGNMENT": max_geometry_error <= thresholds["bbox_max_error"],
         "G_RELATIONSHIPS": max_relationship_error
         <= thresholds["relationship_max_error"],
@@ -384,6 +406,10 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
         "V_PALETTE": metrics["palette_distance"]
         <= thresholds["palette_distance_max"],
         "V_STRUCTURE": metrics["ssim"] >= thresholds["ssim_min"],
+        "V_TEXT_COVERAGE": (
+            ocr_available
+            and text_detection_ratio >= thresholds["text_detection_ratio_min"]
+        ),
     }
 
     details = {
@@ -488,6 +514,11 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
             [],
         ),
         "R_SINGLE_PAGE": (manifest.get("page_count", 0), 1, []),
+        "G_PAGE_GEOMETRY": (
+            page_aspect_error,
+            thresholds["page_aspect_error_max"],
+            [],
+        ),
         "G_ALIGNMENT": (
             max_geometry_error,
             thresholds["bbox_max_error"],
@@ -531,6 +562,18 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
             [],
         ),
         "V_STRUCTURE": (metrics["ssim"], thresholds["ssim_min"], []),
+        "V_TEXT_COVERAGE": {
+            "measured": {
+                "reference_ocr_words": reference_ocr_words,
+                "rendered_ocr_words": rendered_ocr_words,
+                "text_detection_ratio": text_detection_ratio,
+            },
+            "required": {
+                "ocr_available": True,
+                "minimum_ratio": thresholds["text_detection_ratio_min"],
+            },
+            "node_ids": [node["id"] for node in text_nodes],
+        },
     }
     findings = []
     for gate in config["critical_gates"]:
@@ -557,7 +600,7 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
 
     if all(gates[gate] for gate in config["critical_gates"]):
         status = "PASS"
-    elif not audit_complete:
+    elif not audit_complete or not ocr_available:
         status = "VALIDATION_INCOMPLETE"
     elif not editability_gates["S_EDITABILITY"]:
         status = "EDITABILITY_FAILED"
@@ -582,11 +625,13 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
                 "node_ids": finding["node_ids"],
                 "action": {
                     "G_ALIGNMENT": "restore measured bounding boxes and constraints",
+                    "G_PAGE_GEOMETRY": "restore the source page aspect ratio",
                     "G_BORDER_CONTINUITY": "restore visible native strokes",
                     "V_CONTRAST": "increase foreground-background contrast",
                     "V_EDGE_SIMILARITY": "restore missing or displaced visual edges",
                     "V_PALETTE": "restore the measured source palette",
                     "V_STRUCTURE": "restore the source region hierarchy",
+                    "V_TEXT_COVERAGE": "restore missing or undersized native text",
                 }.get(finding["gate"], "rebuild and rerender the affected primitives"),
             }
             for finding in findings

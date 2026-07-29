@@ -12,6 +12,7 @@ from PIL import Image
 
 
 ARABIC = re.compile(r"[\u0600-\u06ff]")
+POINTS_PER_MM = 72 / 25.4
 
 
 def _hex(color):
@@ -185,7 +186,38 @@ def _cell_for_point(x, y, vertical, horizontal):
     return None
 
 
-def _ocr_nodes(path, image, vertical=None, horizontal=None):
+def _page_geometry(width, height):
+    if width >= height:
+        page_width = 297.0
+        page_height = page_width * height / width
+        return page_width, page_height, "landscape"
+    page_height = 297.0
+    page_width = page_height * width / height
+    return page_width, page_height, "portrait"
+
+
+def _measured_font_size(
+    measured_height, image_height, page_height_mm, rtl=False
+):
+    visual_height_points = (
+        float(measured_height) / float(image_height)
+        * float(page_height_mm)
+        * POINTS_PER_MM
+    )
+    # OCR measures visible glyph ink rather than a font's em box. Expand that
+    # measured ink to the corresponding Word point size; Arabic glyphs need
+    # slightly more em height than Latin glyphs in portable Office fonts.
+    expansion = 1.7 if rtl else 1.45
+    return max(6, min(72, visual_height_points * expansion))
+
+
+def _ocr_nodes(
+    path,
+    image,
+    vertical=None,
+    horizontal=None,
+    page_height_mm=210,
+):
     width, height = image.size
     lines = {}
     for source_index, psm in enumerate((11, 3)):
@@ -302,8 +334,16 @@ def _ocr_nodes(path, image, vertical=None, horizontal=None):
                 "text": {
                     "value": value,
                     "direction": "rtl" if rtl else "ltr",
-                    "font_family": "Noto Sans Arabic" if rtl else "Noto Sans",
-                    "font_size_pt": max(6, min(36, measured_height * 0.52)),
+                    # Arial is available on Microsoft Word/iPad and degrades
+                    # predictably to metrically compatible sans fonts in
+                    # LibreOffice and Google Docs.
+                    "font_family": "Arial",
+                    "font_size_pt": _measured_font_size(
+                        measured_height,
+                        height,
+                        page_height_mm,
+                        rtl,
+                    ),
                     "weight": 600 if measured_height >= height * 0.035 else 400,
                     "align": align,
                     "color": color,
@@ -414,6 +454,7 @@ def extract_scene_graph(reference_path, hints=None):
     with Image.open(reference_path) as source:
         image = source.convert("RGB")
     width, height = image.size
+    page_width, page_height, orientation = _page_geometry(width, height)
     background = _dominant_color(image)
     vertical, horizontal = _long_lines(image, background)
     vertical = [x for x in vertical if width * 0.01 <= x <= width * 0.99]
@@ -426,7 +467,13 @@ def extract_scene_graph(reference_path, hints=None):
     )
     vertical = _regular_subset(vertical, 3)
     horizontal = _regular_subset(horizontal, 3)
-    text_nodes = _ocr_nodes(reference_path, image, vertical, horizontal)
+    text_nodes = _ocr_nodes(
+        reference_path,
+        image,
+        vertical,
+        horizontal,
+        page_height_mm=page_height,
+    )
     nodes = []
     if len(vertical) >= 3 and len(horizontal) >= 3:
         x0, x1 = vertical[0], vertical[-1]
@@ -514,9 +561,9 @@ def extract_scene_graph(reference_path, hints=None):
     return {
         "version": "scene-graph.v1",
         "page": {
-            "width": 297 if width >= height else 210,
-            "height": 210 if width >= height else 297,
-            "orientation": "landscape" if width >= height else "portrait",
+            "width": page_width,
+            "height": page_height,
+            "orientation": orientation,
         },
         "nodes": nodes,
         "constraints": [],

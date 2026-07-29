@@ -144,6 +144,44 @@ class DeterministicExtractorTests(unittest.TestCase):
         self.assertLess(x, 570)
         self.assertGreater(x + width, 570)
 
+    def test_page_geometry_preserves_reference_aspect_ratio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / "reference.png"
+            Image.new("RGB", (1280, 688), "white").save(reference)
+            with patch("container.app.extractor._ocr_tsv", return_value=""):
+                scene = validate_scene_graph(extract_scene_graph(reference))
+
+        self.assertAlmostEqual(
+            scene["page"]["width"] / scene["page"]["height"],
+            1280 / 688,
+            places=3,
+        )
+
+    def test_ocr_font_size_is_resolution_independent(self):
+        tsv_template = (
+            "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\t"
+            "left\ttop\twidth\theight\tconf\ttext\n"
+            "5\t1\t1\t1\t1\t1\t{left}\t{top}\t{width}\t{height}\t95\tاجتماع\n"
+        )
+        sizes = []
+        for image_width, image_height in ((640, 344), (1280, 688)):
+            with tempfile.TemporaryDirectory() as directory:
+                reference = Path(directory) / "reference.png"
+                Image.new("RGB", (image_width, image_height), "white").save(reference)
+                tsv = tsv_template.format(
+                    left=image_width // 2,
+                    top=image_height // 10,
+                    width=image_width // 5,
+                    height=image_height // 20,
+                )
+                with patch("container.app.extractor._ocr_tsv", return_value=tsv):
+                    scene = validate_scene_graph(extract_scene_graph(reference))
+            text = next(node for node in scene["nodes"] if node["type"] == "text")
+            sizes.append(text["text"]["font_size_pt"])
+
+        self.assertAlmostEqual(sizes[0], sizes[1], places=2)
+        self.assertGreaterEqual(sizes[0], 12)
+
 
 if __name__ == "__main__":
     unittest.main()
