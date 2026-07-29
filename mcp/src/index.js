@@ -6,7 +6,7 @@ import {
   EXECUTE_TOOL_META,
   referenceFileSchema,
 } from "./file-handoff.js";
-import { renderAndValidate } from "./renderer.js";
+import { ArtifactValidationError, renderAndValidate } from "./renderer.js";
 
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -227,12 +227,19 @@ export class ArtifactMimicryMCP extends McpAgent {
           };
         } catch (error) {
           const message =
-            error instanceof Error && error.message.startsWith("Artifact Mimicry validation failed")
+            error instanceof ArtifactValidationError
               ? error.message
               : UNAVAILABLE;
           return {
             isError: true,
-            content: [{ type: "text", text: message }]
+            content: [{ type: "text", text: message }],
+            ...(error instanceof ArtifactValidationError
+              ? {
+                  _meta: {
+                    "artifact-mimicry/validation-report": error.report
+                  }
+                }
+              : {})
           };
         }
       }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderAndValidate } from "./renderer.js";
+import { ArtifactValidationError, renderAndValidate } from "./renderer.js";
 
 const task = {
   task: "artifact_mimicry",
@@ -43,8 +43,53 @@ test("returns a native editable DOCX only after structural validation passes", (
 });
 
 test("fails closed instead of returning an artifact when geometry is unresolved", () => {
+  assert.throws(() => renderAndValidate({ ...task, elements: [] }), (error) => {
+    assert.ok(error instanceof ArtifactValidationError);
+    assert.equal(error.report.status, "FAIL");
+    assert.equal(error.report.gates.I_04_elements_present, false);
+    assert.match(error.message, /I-04 no editable elements were supplied/);
+    return true;
+  });
+});
+
+test("normalizes the permissive MCP payload into the renderer contract", () => {
+  const result = renderAndValidate({
+    page: { width: 11.69, height: 8.27 },
+    shapes: [
+      {
+        name: "header",
+        kind: "pill",
+        left: 1.169,
+        top: 0.827,
+        width: 3.507,
+        height: 0.6616,
+        backgroundColor: "#082122",
+        text: "الوقت",
+        textColor: "#BDE8DE",
+        fontSize: 14,
+        direction: "rtl"
+      }
+    ]
+  });
+
+  assert.equal(result.report.status, "PASS");
+  assert.equal(result.report.normalization.defaulted_output_contract, true);
+  assert.equal(result.report.normalization.normalized_element_aliases, 1);
+  assert.equal(result.report.gates.S_03_round_rect_count, true);
+  assert.deepEqual(Array.from(result.bytes.slice(0, 2)), [0x50, 0x4b]);
+});
+
+test("reports the exact failed structural gate and observed value", () => {
   assert.throws(
-    () => renderAndValidate({ ...task, elements: [] }, { expected_round_rects: 1 }),
-    /Artifact Mimicry validation failed\. No editable artifact was generated\./
+    () => renderAndValidate(task, { expected_round_rects: 2 }),
+    (error) => {
+      assert.ok(error instanceof ArtifactValidationError);
+      assert.equal(error.report.gates.S_03_round_rect_count, false);
+      assert.deepEqual(error.report.findings, [
+        "S-03 expected 2 roundRect shapes; observed 1"
+      ]);
+      assert.match(error.message, /expected 2 roundRect shapes; observed 1/);
+      return true;
+    }
   );
 });
