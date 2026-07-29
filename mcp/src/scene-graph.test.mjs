@@ -191,6 +191,33 @@ test("derives deterministic z-order and editability for model nodes", async () =
   assert.equal(result.nodes[0].editable, true);
 });
 
+test("infers a text node and editable text metadata from model shorthand", async () => {
+  const shorthandGraph = {
+    ...graph,
+    nodes: [
+      {
+        id: "heading",
+        type: "heading",
+        bbox: [0.1, 0.1, 0.5, 0.1],
+        text: "اجتماع يومي"
+      }
+    ]
+  };
+  const ai = { async run() { return { response: JSON.stringify(shorthandGraph) }; } };
+  const result = await extractSceneGraph({
+    ai,
+    reference: {
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xdb]),
+      mimeType: "image/jpeg",
+      digest: "abc"
+    }
+  });
+  assert.equal(result.nodes[0].type, "text");
+  assert.equal(result.nodes[0].text.value, "اجتماع يومي");
+  assert.equal(result.nodes[0].text.direction, "rtl");
+  assert.equal(result.nodes[0].text.color, "#111111");
+});
+
 test("prefers OpenAI-style choices over an empty legacy response field", async () => {
   const ai = {
     async run() {
@@ -211,13 +238,21 @@ test("prefers OpenAI-style choices over an empty legacy response field", async (
   assert.deepEqual(result, graph);
 });
 
-test("fails closed when vision returns a malformed or fixture-specific graph", async () => {
+test("fails closed when an unknown node type has no inferable visual primitive", async () => {
   const ai = {
     async run() {
       return {
         response: JSON.stringify({
           ...graph,
-          nodes: [{ ...graph.nodes[0], type: "daily_meeting_grid" }]
+          nodes: [
+            {
+              id: "fixture",
+              type: "daily_meeting_grid",
+              bbox: [0.1, 0.1, 0.5, 0.5],
+              z: 0,
+              editable: true
+            }
+          ]
         })
       };
     }

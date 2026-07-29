@@ -326,6 +326,36 @@ const parseVisionResponse = (response) => {
   );
 };
 
+const hasArabic = (value) => /[\u0600-\u06ff]/u.test(value);
+
+const canonicalText = (value) => {
+  if (typeof value === "string") {
+    const direction = hasArabic(value) ? "rtl" : "ltr";
+    return {
+      value,
+      direction,
+      font_family: direction === "rtl" ? "Noto Sans Arabic" : "Arial",
+      font_size_pt: 12,
+      weight: 400,
+      align: direction === "rtl" ? "right" : "left",
+      color: "#111111"
+    };
+  }
+  return value;
+};
+
+const canonicalNodeType = (node, normalized) => {
+  if (nodeTypes.includes(normalized)) return normalized;
+  const alias = nodeTypeAliases.get(normalized);
+  if (alias) return alias;
+  if (node.text != null) return "text";
+  if (node.rows != null || node.columns != null) return "grid";
+  if (node.content_ref != null) return "image";
+  if (node.style?.corner_radius > 0) return "rounded_rectangle";
+  if (node.style) return "rectangle";
+  return normalized;
+};
+
 const canonicalizeSceneNodeTypes = (scene) => ({
   ...scene,
   nodes: Array.isArray(scene?.nodes)
@@ -336,9 +366,8 @@ const canonicalizeSceneNodeTypes = (scene) => ({
           ...node,
           z: Number.isInteger(node.z) ? node.z : index,
           editable: true,
-          type: nodeTypes.includes(normalized)
-            ? normalized
-            : nodeTypeAliases.get(normalized) ?? normalized
+          type: canonicalNodeType(node, normalized),
+          text: canonicalText(node.text)
         };
       })
     : scene?.nodes
