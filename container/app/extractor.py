@@ -267,7 +267,7 @@ def _ocr_nodes(
 ):
     width, height = image.size
     lines = {}
-    for source_index, psm in enumerate((11, 3)):
+    for source_index, psm in enumerate((11, 3, 6)):
         rows = csv.DictReader(io.StringIO(_ocr_tsv(path, psm)), delimiter="\t")
         for row in rows:
             value = (row.get("text") or "").strip()
@@ -304,7 +304,7 @@ def _ocr_nodes(
             # Sparse mode keeps separated headings and names. Automatic mode
             # supplements only measured grid cells where segmentation context
             # improves multiline labels.
-            if source_index and cell is None:
+            if psm == 3 and cell is None:
                 continue
             key = (
                 ("cell",) + cell
@@ -319,15 +319,36 @@ def _ocr_nodes(
             lines.setdefault((source_index,) + key, []).append(
                 (left, top, box_width, box_height, confidence, value)
             )
+    segmented_lines = {}
+    for source_key, words in lines.items():
+        if source_key[0] != 2 or source_key[1] != "line" or len(words) < 2:
+            segmented_lines[source_key] = words
+            continue
+        ordered = sorted(words, key=lambda word: word[0])
+        median_height = sorted(word[3] for word in ordered)[len(ordered) // 2]
+        clusters = [[ordered[0]]]
+        for word in ordered[1:]:
+            previous = clusters[-1][-1]
+            gap = word[0] - (previous[0] + previous[2])
+            if gap > max(20, median_height * 1.6):
+                clusters.append([word])
+            else:
+                clusters[-1].append(word)
+        for segment_index, cluster in enumerate(clusters):
+            cluster_ids = {id(word) for word in cluster}
+            segmented_lines[source_key + ("segment", segment_index)] = [
+                word for word in words if id(word) in cluster_ids
+            ]
+    lines = segmented_lines
     selected = {}
     for source_key, words in lines.items():
         key = source_key[1:]
         score = sum(word[4] for word in words) / len(words)
         score += min(20, sum(len(word[5]) for word in words) * 1.2)
         if key not in selected or score > selected[key][0]:
-            selected[key] = (score, words)
+            selected[key] = (score, words, source_key[0])
     nodes = []
-    for key, (_, words) in selected.items():
+    for key, (_, words, source_index) in selected.items():
         left = min(word[0] for word in words)
         top = min(word[1] for word in words)
         right = max(word[0] + word[2] for word in words)
@@ -335,10 +356,16 @@ def _ocr_nodes(
         measured_width, measured_height = right - left, bottom - top
         rows = []
         for word in sorted(words, key=lambda item: item[1]):
-            if not rows or word[1] - rows[-1][-1][1] > max(4, word[3] * 0.45):
+            if not rows or word[1] - rows[-1][-1][1] > max(4, word[3] * 0.65):
                 rows.append([word])
             else:
                 rows[-1].append(word)
+        if (
+            len(rows) > 1
+            and len(words) <= 4
+            and measured_width / max(1, measured_height) >= 2.2
+        ):
+            rows = [words]
         value = "\n".join(" ".join(word[5] for word in row) for row in rows)
         rtl = bool(ARABIC.search(value))
         crop = image.crop(
@@ -382,7 +409,12 @@ def _ocr_nodes(
         box_width_points = box_width / width * page_width_mm * POINTS_PER_MM
         line_count = max(1, len(value.splitlines()))
         height_cap = box_height_points * 0.92 / line_count
-        width_cap = box_width_points * 0.86 / _text_width_units(value)
+        width_safety = 2.2 if source_index == 2 else 1.0
+        width_cap = (
+            box_width_points
+            * 0.86
+            / (_text_width_units(value) * width_safety)
+        )
         fitted_font_size = min(
             measured_font_size,
             max(6, height_cap),
@@ -414,7 +446,31 @@ def _ocr_nodes(
                 },
             }
         )
-    return nodes
+    # Dense-layout OCR (PSM 6) recovers banner and instruction lines that
+    # sparse segmentation can miss. Collapse spatial duplicates so the same
+    # source text can never become two native text layers.
+    deduplicated = []
+    for node in nodes:
+        x, y, box_width, box_height = node["bbox"]
+        replacement = None
+        for index, existing in enumerate(deduplicated):
+            ex, ey, ew, eh = existing["bbox"]
+            overlap_x = max(0, min(x + box_width, ex + ew) - max(x, ex))
+            overlap_y = max(0, min(y + box_height, ey + eh) - max(y, ey))
+            overlap = overlap_x * overlap_y
+            smaller = min(box_width * box_height, ew * eh)
+            if smaller and overlap / smaller >= 0.65:
+                replacement = index
+                break
+        if replacement is None:
+            deduplicated.append(node)
+        elif len(node["text"]["value"]) > len(
+            deduplicated[replacement]["text"]["value"]
+        ):
+            deduplicated[replacement] = node
+    for index, node in enumerate(deduplicated, 1):
+        node["id"] = "text-%03d" % index
+    return deduplicated
 
 
 def _expand_boundary_artwork(x, box_width, box_height, vertical, image_width):
@@ -464,24 +520,31 @@ def _graphic_nodes(path, image, background, text_nodes, vertical=None, horizonta
     page_area = width * height
     text_boxes = [node["bbox"] for node in text_nodes]
     nodes = []
-    for x, y, box_width, box_height, area in stats[1:count]:
-        ratio = area / page_area
-        if ratio < 0.00045 or ratio > 0.11 or box_width < 10 or box_height < 10:
-            continue
+
+    def overlaps_text(bbox):
+        for tx, ty, tw, th in text_boxes:
+            ix = max(0, min(bbox[0] + bbox[2], tx + tw) - max(bbox[0], tx))
+            iy = max(0, min(bbox[1] + bbox[3], ty + th) - max(bbox[1], ty))
+            if ix * iy >= min(bbox[2] * bbox[3], tw * th) * 0.35:
+                return True
+        return False
+
+    def append_image(x, y, box_width, box_height):
+        if box_width < 10 or box_height < 10:
+            return
+        ratio = box_width * box_height / page_area
+        if ratio < 0.00045 or ratio > 0.11:
+            return
         x, box_width, boundary_artwork = _expand_boundary_artwork(
             x, box_width, box_height, vertical, width
         )
         box_width = min(box_width, width - x)
         bbox = [x / width, y / height, box_width / width, box_height / height]
-        overlap_text = False
-        for tx, ty, tw, th in ([] if boundary_artwork else text_boxes):
-            ix = max(0, min(bbox[0] + bbox[2], tx + tw) - max(bbox[0], tx))
-            iy = max(0, min(bbox[1] + bbox[3], ty + th) - max(bbox[1], ty))
-            if ix * iy >= min(bbox[2] * bbox[3], tw * th) * 0.35:
-                overlap_text = True
-                break
-        if overlap_text:
-            continue
+        artwork_crop = image.crop((x, y, x + box_width, y + box_height))
+        if overlaps_text(bbox) and not (
+            boundary_artwork and _looks_like_artwork(artwork_crop)
+        ):
+            return
         pad_x, pad_y = 3 / width, 3 / height
         crop = [
             max(0, bbox[0] - pad_x),
@@ -491,7 +554,9 @@ def _graphic_nodes(path, image, background, text_nodes, vertical=None, horizonta
         ]
         nodes.append(
             {
-                "id": "art-%03d" % (len(nodes) + 1),
+                "id": "art-%03d" % (
+                    1 + sum(node["type"] == "image" for node in nodes)
+                ),
                 "type": "image",
                 "bbox": crop,
                 "crop": crop,
@@ -508,7 +573,253 @@ def _graphic_nodes(path, image, background, text_nodes, vertical=None, horizonta
                 },
             }
         )
+
+    for x, y, box_width, box_height, area in stats[1:count]:
+        ratio = area / page_area
+        if ratio < 0.00045 or ratio > 0.11 or box_width < 10 or box_height < 10:
+            continue
+        component = array[y : y + box_height, x : x + box_width]
+        component_mask = mask[y : y + box_height, x : x + box_width].copy()
+        if box_width / max(1, box_height) >= 8:
+            long_horizontal = cv2.morphologyEx(
+                component_mask,
+                cv2.MORPH_OPEN,
+                cv2.getStructuringElement(
+                    cv2.MORPH_RECT, (max(20, box_width // 6), 1)
+                ),
+            )
+            islands = component_mask.copy()
+            islands[long_horizontal > 0] = 0
+            island_count, _, island_stats, _ = cv2.connectedComponentsWithStats(
+                islands, 8
+            )
+            qualified_islands = [
+                item
+                for item in island_stats[1:island_count]
+                if item[4] / page_area >= 0.00045
+                and item[2] >= 10
+                and item[3] >= 10
+            ]
+            if len(qualified_islands) >= 2:
+                for island_x, island_y, island_width, island_height, _ in (
+                    qualified_islands
+                ):
+                    append_image(
+                        x + island_x,
+                        y + island_y,
+                        island_width,
+                        island_height,
+                    )
+                continue
+        quantized = (
+            (component.astype("uint16") // 16) * 16 + 8
+        ).clip(0, 255).astype("uint8")
+        colors, color_counts = numpy.unique(
+            quantized.reshape(-1, 3), axis=0, return_counts=True
+        )
+        dominant_index = int(color_counts.argmax())
+        dominant = colors[dominant_index].astype("int16")
+        dominant_ratio = float(color_counts[dominant_index]) / (
+            box_width * box_height
+        )
+        component_density = area / (box_width * box_height)
+        background_delta = int(
+            numpy.max(
+                numpy.abs(dominant - numpy.asarray(background, dtype="int16"))
+            )
+        )
+        is_flat_band = (
+            box_width / max(1, box_height) >= 3
+            and dominant_ratio >= 0.55
+            and component_density >= 0.55
+            and background_delta >= 24
+        )
+        if not is_flat_band:
+            append_image(x, y, box_width, box_height)
+            continue
+
+        nodes.append(
+            {
+                "id": "panel-%03d" % (
+                    1 + sum(node["type"] == "rectangle" for node in nodes)
+                ),
+                "type": "rectangle",
+                "bbox": [
+                    x / width,
+                    y / height,
+                    box_width / width,
+                    box_height / height,
+                ],
+                "z": 10,
+                "editable": True,
+                "style": {
+                    "fill": _hex(tuple(int(value) for value in dominant)),
+                    "stroke": None,
+                    "stroke_width": 0,
+                    "corner_radius": 0,
+                    "opacity": 1,
+                },
+            }
+        )
+
+        # Remove the flat panel color and long structural rules. Remaining
+        # visual islands (portraits/icons) are independently retained, while
+        # recovered text is excluded by the native-text overlap check.
+        residual = (
+            numpy.max(
+                numpy.abs(component.astype("int16") - dominant), axis=2
+            )
+            >= 32
+        ).astype("uint8") * 255
+        long_horizontal = cv2.morphologyEx(
+            residual,
+            cv2.MORPH_OPEN,
+            cv2.getStructuringElement(
+                cv2.MORPH_RECT, (max(20, box_width // 6), 1)
+            ),
+        )
+        residual[long_horizontal > 0] = 0
+        residual = cv2.morphologyEx(
+            residual,
+            cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
+        )
+        residual_count, _, residual_stats, _ = cv2.connectedComponentsWithStats(
+            residual, 8
+        )
+        for (
+            residual_x,
+            residual_y,
+            residual_width,
+            residual_height,
+            residual_area,
+        ) in residual_stats[1:residual_count]:
+            if residual_area / page_area < 0.00045:
+                continue
+            append_image(
+                x + residual_x,
+                y + residual_y,
+                residual_width,
+                residual_height,
+            )
     return nodes[:80]
+
+
+def _text_panel_nodes(image, background, text_nodes):
+    """Recover low-contrast flat panels surrounding native text."""
+
+    try:
+        import cv2
+        import numpy
+    except ImportError:
+        return []
+    array = numpy.asarray(image.convert("RGB"))
+    width, height = image.size
+    background_array = numpy.asarray(background, dtype="int16")
+    nodes = []
+    for text_node in text_nodes:
+        bx, by, bw, bh = text_node["bbox"]
+        if bw / max(bh, 1 / height) < 3:
+            continue
+        left = max(0, int(round((bx - bw * 0.12) * width)))
+        top = max(0, int(round((by - bh * 0.65) * height)))
+        right = min(width, int(round((bx + bw * 1.12) * width)))
+        bottom = min(height, int(round((by + bh * 1.65) * height)))
+        region = array[top:bottom, left:right]
+        if region.size == 0:
+            continue
+        band = max(2, int(round(min(region.shape[:2]) * 0.18)))
+        border_pixels = numpy.concatenate(
+            (
+                region[:band].reshape(-1, 3),
+                region[-band:].reshape(-1, 3),
+                region[:, :band].reshape(-1, 3),
+                region[:, -band:].reshape(-1, 3),
+            )
+        )
+        quantized = (
+            (border_pixels.astype("uint16") // 8) * 8 + 4
+        ).clip(0, 255).astype("uint8")
+        colors, counts = numpy.unique(quantized, axis=0, return_counts=True)
+        candidates = sorted(
+            zip(colors, counts),
+            key=lambda item: int(item[1]),
+            reverse=True,
+        )
+        panel_color = next(
+            (
+                color.astype("int16")
+                for color, _ in candidates
+                if int(numpy.max(numpy.abs(color.astype("int16") - background_array)))
+                >= 10
+            ),
+            None,
+        )
+        if panel_color is None:
+            continue
+        panel_mask = (
+            numpy.max(
+                numpy.abs(array.astype("int16") - panel_color), axis=2
+            )
+            <= 12
+        ).astype("uint8") * 255
+        component_count, _, stats, _ = cv2.connectedComponentsWithStats(
+            panel_mask, 8
+        )
+        text_box = [
+            bx,
+            by,
+            bw,
+            bh,
+        ]
+        best = None
+        best_overlap = 0.0
+        for x, y, box_width, box_height, area in stats[1:component_count]:
+            if box_width / max(1, box_height) < 3 or area < box_width * box_height * 0.55:
+                continue
+            candidate = [x / width, y / height, box_width / width, box_height / height]
+            overlap_x = max(
+                0,
+                min(candidate[0] + candidate[2], bx + bw)
+                - max(candidate[0], bx),
+            )
+            overlap_y = max(
+                0,
+                min(candidate[1] + candidate[3], by + bh)
+                - max(candidate[1], by),
+            )
+            overlap = overlap_x * overlap_y
+            if overlap > best_overlap:
+                best = candidate
+                best_overlap = overlap
+        if best is None or best_overlap < text_box[2] * text_box[3] * 0.45:
+            continue
+        if any(
+            max(
+                abs(best[index] - existing["bbox"][index])
+                for index in range(4)
+            )
+            <= 0.01
+            for existing in nodes
+        ):
+            continue
+        nodes.append(
+            {
+                "id": "panel-text-%03d" % (len(nodes) + 1),
+                "type": "rectangle",
+                "bbox": best,
+                "z": 10,
+                "editable": True,
+                "style": {
+                    "fill": _hex(tuple(int(value) for value in panel_color)),
+                    "stroke": None,
+                    "stroke_width": 0,
+                    "corner_radius": 0,
+                    "opacity": 1,
+                },
+            }
+        )
+    return nodes
 
 
 def extract_scene_graph(reference_path, hints=None):
@@ -540,6 +851,7 @@ def extract_scene_graph(reference_path, hints=None):
         page_height_mm=page_height,
     )
     nodes = []
+    nodes.extend(_text_panel_nodes(image, background, text_nodes))
     if len(vertical) >= 3 and len(horizontal) >= 3:
         x0, x1 = vertical[0], vertical[-1]
         y0, y1 = horizontal[0], horizontal[-1]

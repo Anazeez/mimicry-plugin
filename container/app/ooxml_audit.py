@@ -7,7 +7,12 @@ alone.
 
 from io import BytesIO
 from pathlib import Path
+import csv
+import io
 import re
+import shutil
+import subprocess
+import tempfile
 import zipfile
 from xml.etree import ElementTree
 
@@ -98,6 +103,66 @@ def _hash_distance(left, right):
     return bin(int(left ^ right)).count("1")
 
 
+def _ocr_image_text(image):
+    """Return confident visible text in one retained raster, or None if unavailable."""
+
+    if not shutil.which("tesseract"):
+        return None
+    with tempfile.TemporaryDirectory(prefix="reconstructor-media-ocr-") as directory:
+        path = Path(directory) / "media.png"
+        image.convert("RGB").save(path)
+        result = subprocess.run(
+            [
+                "tesseract",
+                str(path),
+                "stdout",
+                "-l",
+                "ara+eng",
+                "--psm",
+                "6",
+                "tsv",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    if result.returncode != 0:
+        return None
+    words = []
+    for row in csv.DictReader(io.StringIO(result.stdout), delimiter="\t"):
+        value = (row.get("text") or "").strip()
+        try:
+            confidence = float(row.get("conf", "-1"))
+        except (TypeError, ValueError):
+            continue
+        if (
+            confidence >= 60
+            and value
+            and any(character.isalnum() for character in value)
+        ):
+            words.append(value)
+    normalized_words = [
+        _normalized_text(word)
+        for word in words
+        if _normalized_text(word)
+    ]
+    substantial = [
+        word
+        for word in normalized_words
+        if sum(character.isalnum() for character in word) >= 3
+    ]
+    if not substantial:
+        total_characters = sum(
+            character.isalnum()
+            for word in normalized_words
+            for character in word
+        )
+        if len(normalized_words) < 2 or total_characters < 4:
+            return ""
+        substantial = normalized_words
+    return _normalized_text(" ".join(substantial))
+
+
 def _native_text_values(archive, names):
     values = []
     parts = [
@@ -154,6 +219,12 @@ def audit_docx_package(docx_path, scene, actual_nodes, reference_path):
         "monolithic_flattened_object": False,
         "unjustified_raster_objects": 0,
         "image_justifications": [],
+        "raster_text_audit_complete": False,
+        "raster_text_audit_error": None,
+        "raster_text_regions": 0,
+        "duplicate_text_layers": 0,
+        "text_region_exclusivity_ratio": 0.0,
+        "raster_text_evidence": [],
     }
     try:
         docx_path = Path(docx_path)
@@ -181,12 +252,17 @@ def audit_docx_package(docx_path, scene, actual_nodes, reference_path):
             result["package_media_files"] = len(media_names)
 
             with Image.open(reference_path) as source:
+                source = source.convert("RGB")
                 source_hash = _difference_hash(source)
+                source_size = source.size
             near_source_media = False
+            media_images = {}
             for name in media_names:
                 try:
                     with Image.open(BytesIO(archive.read(name))) as media:
-                        if _hash_distance(source_hash, _difference_hash(media)) <= 4:
+                        decoded = media.convert("RGB")
+                        media_images[name] = decoded.copy()
+                        if _hash_distance(source_hash, _difference_hash(decoded)) <= 4:
                             near_source_media = True
                 except (OSError, ValueError):
                     continue
@@ -211,6 +287,75 @@ def audit_docx_package(docx_path, scene, actual_nodes, reference_path):
         result["native_text_regions"] = len(native_text_nodes)
         result["visible_text_native_ratio"] = (
             len(native_text_nodes) / len(text_nodes) if text_nodes else 1.0
+        )
+
+        # A retained generic artwork region may not contain source text. Match
+        # each scene image to its packaged media by measured size and visual
+        # hash, then OCR the media itself. Logos and genuine photographs are
+        # explicitly exempt because their internal lettering is legitimate
+        # raster content.
+        generic_image_nodes = [
+            node
+            for node in expected.values()
+            if node.get("type") == "image"
+            and node.get("raster_justification")
+            in {"source_artwork", "source_illustration", "source_texture"}
+            and node["id"] in actual
+            and _is_image_shape(actual[node["id"]])
+        ]
+        unmatched_media = dict(media_images)
+        raster_audit_complete = True
+        for node in generic_image_nodes:
+            x, y, box_width, box_height = node["bbox"]
+            source_crop = source.crop(
+                (
+                    max(0, int(round(x * source_size[0]))),
+                    max(0, int(round(y * source_size[1]))),
+                    min(source_size[0], int(round((x + box_width) * source_size[0]))),
+                    min(source_size[1], int(round((y + box_height) * source_size[1]))),
+                )
+            )
+            if not unmatched_media or not source_crop.width or not source_crop.height:
+                raster_audit_complete = False
+                break
+            crop_hash = _difference_hash(source_crop)
+            media_name, media = min(
+                unmatched_media.items(),
+                key=lambda item: (
+                    abs(item[1].width - source_crop.width)
+                    + abs(item[1].height - source_crop.height),
+                    _hash_distance(crop_hash, _difference_hash(item[1])),
+                ),
+            )
+            unmatched_media.pop(media_name)
+            raster_text = _ocr_image_text(media)
+            if raster_text is None:
+                raster_audit_complete = False
+                break
+            if not raster_text:
+                continue
+            result["raster_text_regions"] += 1
+            native_tokens = set(native_text.split())
+            raster_tokens = set(raster_text.split())
+            duplicate = bool(native_tokens.intersection(raster_tokens))
+            if duplicate:
+                result["duplicate_text_layers"] += 1
+            result["raster_text_evidence"].append(
+                {
+                    "id": node["id"],
+                    "media": media_name,
+                    "text": raster_text,
+                    "duplicates_native_text": duplicate,
+                }
+            )
+        result["raster_text_audit_complete"] = raster_audit_complete
+        result["raster_text_audit_error"] = (
+            None
+            if raster_audit_complete
+            else "retained raster text evidence was unavailable"
+        )
+        result["text_region_exclusivity_ratio"] = (
+            1.0 if result["raster_text_regions"] == 0 else 0.0
         )
 
         reconstructable = [
@@ -279,7 +424,7 @@ def audit_docx_package(docx_path, scene, actual_nodes, reference_path):
         result["total_unjustified_raster_ratio"] = _union_area(
             [node["bbox"] for node in unjustified]
         )
-        result["audit_complete"] = True
+        result["audit_complete"] = raster_audit_complete
         return result
     except (ElementTree.ParseError, KeyError, OSError, ValueError, zipfile.BadZipFile) as error:
         result["audit_error"] = "%s: %s" % (type(error).__name__, error)

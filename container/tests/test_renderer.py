@@ -275,6 +275,71 @@ class NativeRendererTests(unittest.TestCase):
         self.assertEqual(audit["unjustified_raster_objects"], 4, audit)
         self.assertGreaterEqual(audit["total_unjustified_raster_ratio"], 0.99)
 
+    def test_text_bearing_artwork_beneath_native_text_is_reported(self):
+        """Catches bypassing the package-media OCR and duplicate-layer audit."""
+
+        scene = validate_scene_graph(
+            {
+                "version": "scene-graph.v1",
+                "page": {
+                    "width": 297,
+                    "height": 210,
+                    "orientation": "landscape",
+                },
+                "nodes": [
+                    {
+                        "id": "text-bearing-panel",
+                        "type": "image",
+                        "bbox": [0.1, 0.1, 0.5, 0.15],
+                        "crop": [0.1, 0.1, 0.5, 0.15],
+                        "content_ref": "reference",
+                        "raster_justification": "source_artwork",
+                        "z": 1,
+                        "editable": True,
+                        "style": {
+                            "fill": None,
+                            "stroke": None,
+                            "stroke_width": 0,
+                            "corner_radius": 0,
+                            "opacity": 1,
+                        },
+                    },
+                    {
+                        "id": "native-title",
+                        "type": "text",
+                        "bbox": [0.15, 0.13, 0.3, 0.08],
+                        "z": 2,
+                        "editable": True,
+                        "text": {
+                            "value": "Daily",
+                            "direction": "ltr",
+                            "font_family": "Arial",
+                            "font_size_pt": 18,
+                            "weight": 600,
+                            "align": "left",
+                            "color": "#111111",
+                        },
+                    },
+                ],
+                "constraints": [],
+            }
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            reference = workspace / "reference.jpg"
+            self._reference(reference)
+            with patch(
+                "container.app.ooxml_audit._ocr_image_text",
+                return_value="daily",
+            ):
+                artifact = render_scene(scene, reference, workspace)
+
+        audit = artifact.manifest["package_audit"]
+        self.assertTrue(audit["raster_text_audit_complete"], audit)
+        self.assertEqual(audit["raster_text_regions"], 1, audit)
+        self.assertEqual(audit["duplicate_text_layers"], 1, audit)
+        self.assertEqual(audit["text_region_exclusivity_ratio"], 0.0, audit)
+
     def test_container_boundary_returns_fresh_render_bundle(self):
         scene_bytes = SCENE_PATH.read_bytes()
         with tempfile.TemporaryDirectory() as directory:

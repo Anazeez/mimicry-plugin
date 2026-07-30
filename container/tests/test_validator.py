@@ -87,6 +87,10 @@ class FidelityValidatorTests(unittest.TestCase):
                 "raster_tiling_detected": False,
                 "monolithic_flattened_object": False,
                 "unjustified_raster_objects": 0,
+                "raster_text_audit_complete": True,
+                "raster_text_regions": 0,
+                "duplicate_text_layers": 0,
+                "text_region_exclusivity_ratio": 1.0,
             },
             "actual_nodes": [
                 {"id": node["id"], "bbox": node["bbox"], "shape_type": node["type"]}
@@ -255,6 +259,30 @@ class FidelityValidatorTests(unittest.TestCase):
         self.assertIn("G_NATIVE_OBJECT_RATIO", report["gates"], report)
         self.assertFalse(report["gates"]["G_VISIBLE_TEXT_NATIVE"], report)
         self.assertFalse(report["gates"]["G_NATIVE_OBJECT_RATIO"], report)
+
+    def test_raster_text_with_native_overlay_fails_exclusivity_gates(self):
+        """Catches accepting a text-bearing image beneath editable Word text."""
+
+        manifest = json.loads(json.dumps(self.manifest))
+        manifest["package_audit"].update(
+            {
+                "embedded_image_objects": 1,
+                "raster_text_audit_complete": True,
+                "raster_text_regions": 1,
+                "duplicate_text_layers": 1,
+                "text_region_exclusivity_ratio": 0.0,
+            }
+        )
+
+        report = validate_fidelity(
+            self.reference, self.good, self.scene, manifest
+        )
+
+        self.assertEqual(report["status"], "EDITABILITY_FAILED", report)
+        self.assertFalse(report["gates"]["G_NO_RASTERIZED_TEXT"], report)
+        self.assertFalse(report["gates"]["G_NO_DUPLICATE_TEXT_LAYERS"], report)
+        self.assertFalse(report["gates"]["G_TEXT_REGION_EXCLUSIVITY"], report)
+        self.assertFalse(report["gates"]["S_EDITABILITY"], report)
 
     def test_missing_rendered_text_fails_visual_text_coverage(self):
         report = validate_fidelity(

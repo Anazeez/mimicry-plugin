@@ -114,6 +114,77 @@ class DeterministicExtractorTests(unittest.TestCase):
 
         self.assertFalse(any(node["type"] == "text" for node in scene["nodes"]))
 
+    def test_dense_banner_text_is_native_and_its_flat_panel_is_not_rasterized(self):
+        """Catches removal of the dense PSM-6 recovery and panel separation."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / "reference.png"
+            image = Image.new("RGB", (800, 400), "white")
+            draw = ImageDraw.Draw(image)
+            draw.rectangle((30, 24, 500, 72), fill="#f7dfd5")
+            draw.rectangle((80, 40, 450, 54), fill="#222222")
+            image.save(reference)
+            header = (
+                "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\t"
+                "left\ttop\twidth\theight\tconf\ttext\n"
+            )
+            dense = (
+                header
+                + "5\t1\t1\t1\t1\t1\t80\t40\t110\t14\t92\tاجتماعات\n"
+                + "5\t1\t1\t1\t1\t2\t205\t40\t90\t14\t92\tتعاونية\n"
+                + "5\t1\t1\t1\t1\t3\t310\t40\t140\t14\t92\tأفضل\n"
+            )
+
+            def tsv_for_mode(_, psm=11):
+                return dense if psm == 6 else header
+
+            with patch("container.app.extractor._ocr_tsv", side_effect=tsv_for_mode):
+                scene = validate_scene_graph(extract_scene_graph(reference))
+
+        text_nodes = [node for node in scene["nodes"] if node["type"] == "text"]
+        self.assertEqual(len(text_nodes), 1)
+        self.assertIn("اجتماعات", text_nodes[0]["text"]["value"])
+        self.assertTrue(
+            any(
+                node["type"] == "rectangle"
+                and node["bbox"][0] <= 30 / 800 + 0.01
+                and node["bbox"][2] >= 450 / 800
+                for node in scene["nodes"]
+            ),
+            scene,
+        )
+        self.assertFalse(
+            any(
+                node["type"] == "image"
+                and node["bbox"][0] < 0.65
+                and node["bbox"][1] < 0.20
+                for node in scene["nodes"]
+            ),
+            scene,
+        )
+
+    def test_flat_band_does_not_fuse_multiple_portraits_into_one_raster_strip(self):
+        """Catches treating a structural band plus visual islands as one image."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / "reference.png"
+            image = Image.new("RGB", (900, 450), "white")
+            draw = ImageDraw.Draw(image)
+            draw.rectangle((40, 130, 860, 168), fill="#f3d8c8")
+            draw.line((40, 166, 860, 166), fill="#e8a181", width=3)
+            for center, color in (((210, 149), "#e9a36f"), ((690, 149), "#4f7792")):
+                x, y = center
+                draw.ellipse((x - 16, y - 16, x + 16, y + 16), fill=color)
+                draw.ellipse((x - 7, y - 7, x + 7, y + 7), fill="#f4d2bb")
+            image.save(reference)
+
+            with patch("container.app.extractor._ocr_tsv", return_value=""):
+                scene = validate_scene_graph(extract_scene_graph(reference))
+
+        image_nodes = [node for node in scene["nodes"] if node["type"] == "image"]
+        self.assertFalse(any(node["bbox"][2] > 0.50 for node in image_nodes), scene)
+        self.assertGreaterEqual(len(image_nodes), 2, scene)
+
     def test_repeated_cell_text_edges_do_not_replace_true_grid_rules(self):
         with tempfile.TemporaryDirectory() as directory:
             reference = Path(directory) / "reference.png"
@@ -234,6 +305,54 @@ class DeterministicExtractorTests(unittest.TestCase):
             expected_width_cap + 0.01,
         )
         self.assertLess(text["text"]["font_size_pt"], 12)
+
+    def test_near_aligned_date_words_remain_on_one_native_line(self):
+        """Catches splitting one visual date line into clipped Word lines."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / "reference.png"
+            Image.new("RGB", (800, 400), "white").save(reference)
+            tsv = (
+                "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\t"
+                "left\ttop\twidth\theight\tconf\ttext\n"
+                "5\t1\t1\t1\t1\t1\t500\t61\t20\t10\t95\t1\n"
+                "5\t1\t1\t1\t1\t2\t525\t40\t70\t30\t95\tيونيو\n"
+                "5\t1\t1\t1\t1\t3\t600\t61\t55\t10\t95\t2025\n"
+            )
+            with patch("container.app.extractor._ocr_tsv", return_value=tsv):
+                scene = validate_scene_graph(extract_scene_graph(reference))
+
+        text = next(node for node in scene["nodes"] if node["type"] == "text")
+        self.assertNotIn("\n", text["text"]["value"])
+
+    def test_dense_recovery_uses_a_portable_width_safety_margin(self):
+        """Catches Word wrapping a recovered long banner line after round-trip."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / "reference.png"
+            Image.new("RGB", (800, 400), "white").save(reference)
+            header = (
+                "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\t"
+                "left\ttop\twidth\theight\tconf\ttext\n"
+            )
+            dense = (
+                header
+                + "5\t1\t1\t1\t1\t1\t60\t40\t90\t18\t95\tالاجتماعات\n"
+                + "5\t1\t1\t1\t1\t2\t160\t40\t90\t18\t95\tالتعاونية\n"
+                + "5\t1\t1\t1\t1\t3\t260\t40\t90\t18\t95\tهي\n"
+                + "5\t1\t1\t1\t1\t4\t360\t40\t90\t18\t95\tالأفضل\n"
+                + "5\t1\t1\t1\t1\t5\t460\t40\t90\t18\t95\tشارك\n"
+                + "5\t1\t1\t1\t1\t6\t560\t40\t90\t18\t95\tزملاءك\n"
+            )
+
+            def tsv_for_mode(_, psm=11):
+                return dense if psm == 6 else header
+
+            with patch("container.app.extractor._ocr_tsv", side_effect=tsv_for_mode):
+                scene = validate_scene_graph(extract_scene_graph(reference))
+
+        text = next(node for node in scene["nodes"] if node["type"] == "text")
+        self.assertLessEqual(text["text"]["font_size_pt"], 17.5)
 
     def test_text_width_estimate_handles_mixed_scripts_and_multiline_text(self):
         self.assertGreater(

@@ -412,6 +412,10 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
         "source_reference_embedded",
         "raster_tiling_detected",
         "monolithic_flattened_object",
+        "raster_text_audit_complete",
+        "raster_text_regions",
+        "duplicate_text_layers",
+        "text_region_exclusivity_ratio",
     )
     metrics.update({name: audit.get(name) for name in audit_metric_names})
 
@@ -450,6 +454,21 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
         "G_RASTER_JUSTIFICATION": (
             audit_complete
             and int(audit.get("unjustified_raster_objects", 1)) == 0
+        ),
+        "G_NO_RASTERIZED_TEXT": (
+            audit_complete
+            and audit.get("raster_text_audit_complete") is True
+            and int(audit.get("raster_text_regions", 1)) == 0
+        ),
+        "G_NO_DUPLICATE_TEXT_LAYERS": (
+            audit_complete
+            and audit.get("raster_text_audit_complete") is True
+            and int(audit.get("duplicate_text_layers", 1)) == 0
+        ),
+        "G_TEXT_REGION_EXCLUSIVITY": (
+            audit_complete
+            and audit.get("raster_text_audit_complete") is True
+            and float(audit.get("text_region_exclusivity_ratio", 0)) >= 1.0
         ),
     }
     editability_gates["S_EDITABILITY"] = all(editability_gates.values())
@@ -559,6 +578,35 @@ def validate_fidelity(reference_path, rendered_path, scene, manifest):
                 )
             },
             "required": {"unjustified_raster_objects": 0},
+            "node_ids": [],
+        },
+        "G_NO_RASTERIZED_TEXT": {
+            "measured": {
+                "raster_text_audit_complete": audit.get(
+                    "raster_text_audit_complete"
+                ),
+                "raster_text_regions": audit.get("raster_text_regions"),
+            },
+            "required": {
+                "raster_text_audit_complete": True,
+                "raster_text_regions": 0,
+            },
+            "node_ids": [],
+        },
+        "G_NO_DUPLICATE_TEXT_LAYERS": {
+            "measured": {
+                "duplicate_text_layers": audit.get("duplicate_text_layers"),
+            },
+            "required": {"duplicate_text_layers": 0},
+            "node_ids": [],
+        },
+        "G_TEXT_REGION_EXCLUSIVITY": {
+            "measured": {
+                "text_region_exclusivity_ratio": audit.get(
+                    "text_region_exclusivity_ratio"
+                ),
+            },
+            "required": {"minimum_ratio": 1.0},
             "node_ids": [],
         },
         "S_EDITABILITY": {
