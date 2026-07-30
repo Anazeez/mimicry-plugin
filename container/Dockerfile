@@ -1,6 +1,6 @@
 FROM ubuntu:24.04
 
-ARG MIMICRY_RENDERER_REVISION=2026-07-29-joined-script-fit-v10
+ARG MIMICRY_RENDERER_REVISION=2026-07-30-semantic-template-v11
 LABEL org.opencontainers.image.revision="${MIMICRY_RENDERER_REVISION}"
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -20,6 +20,7 @@ RUN apt-get update \
         tesseract-ocr-ara \
         fonts-noto-core \
         fonts-noto-extra \
+        fonts-urw-base35 \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 

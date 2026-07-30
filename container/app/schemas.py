@@ -178,6 +178,20 @@ def validate_scene_graph(value):
                 raise SceneGraphError("SCENE_IMAGE", "%s requires content_ref" % node_id)
             normalized["content_ref"] = content_ref
             normalized["crop"] = list(node.get("crop", [0, 0, 1, 1]))
+            if content_ref == "cleaned-reference-background":
+                redactions = node.get("redactions", [])
+                if not isinstance(redactions, list):
+                    raise SceneGraphError(
+                        "SCENE_IMAGE", "%s redactions must be an array" % node_id
+                    )
+                normalized["redactions"] = [
+                    _bbox(redaction, "%s redaction" % node_id)
+                    for redaction in redactions
+                ]
+                normalized["background_fill"] = _color(
+                    node.get("background_fill"),
+                    "%s background fill" % node_id,
+                )
             raster_justification = node.get("raster_justification")
             if raster_justification is not None:
                 if raster_justification not in {

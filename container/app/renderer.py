@@ -16,7 +16,7 @@ import tempfile
 import time
 import uuid
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from .ooxml_audit import audit_docx_package
 
@@ -200,6 +200,30 @@ def _crop_reference(reference_path, crop, output_path):
         image.crop(box).convert("RGB").save(output_path, "PNG")
 
 
+def _clean_reference_background(reference_path, node, output_path):
+    with Image.open(reference_path) as source:
+        image = source.convert("RGB")
+    width, height = image.size
+    fill_value = str(node.get("background_fill") or "#ffffff").lstrip("#")
+    fill = tuple(
+        int(fill_value[index : index + 2], 16)
+        for index in (0, 2, 4)
+    )
+    draw = ImageDraw.Draw(image)
+    for x, y, box_width, box_height in node.get("redactions", []):
+        pad = max(2, int(round(min(width, height) * 0.004)))
+        draw.rectangle(
+            (
+                max(0, int(round(x * width)) - pad),
+                max(0, int(round(y * height)) - pad),
+                min(width, int(round((x + box_width) * width)) + pad),
+                min(height, int(round((y + box_height) * height)) + pad),
+            ),
+            fill=fill,
+        )
+    image.save(output_path, "PNG")
+
+
 def _configure_page(document, page):
     page_styles = document.StyleFamilies.getByName("PageStyles")
     style_name = document.CurrentController.ViewCursor.PageStyleName
@@ -347,7 +371,10 @@ def _add_shape(document, draw_page, node, page_width, page_height, reference, wo
     _anchor_to_first_page(shape)
     if node_type == "image":
         crop_path = Path(workspace) / ("%s.png" % node["id"])
-        _crop_reference(reference, node.get("crop", [0, 0, 1, 1]), crop_path)
+        if node.get("content_ref") == "cleaned-reference-background":
+            _clean_reference_background(reference, node, crop_path)
+        else:
+            _crop_reference(reference, node.get("crop", [0, 0, 1, 1]), crop_path)
         _set_if_supported(shape, "GraphicURL", crop_path.resolve().as_uri())
     _set_geometry(shape, node["bbox"], page_width, page_height)
     if node_type == "line":

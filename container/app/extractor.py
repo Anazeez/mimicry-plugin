@@ -2,14 +2,18 @@
 
 from collections import Counter
 import csv
+import difflib
+from functools import lru_cache
 import io
 import itertools
+from pathlib import Path
 import re
 import shutil
 import subprocess
+import tempfile
 import unicodedata
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 
 ARABIC = re.compile(r"[\u0600-\u06ff]")
@@ -23,9 +27,17 @@ def _hex(color):
 def _dominant_color(image):
     sample = image.copy()
     sample.thumbnail((160, 160))
+    sample = sample.convert("RGB")
+    width, height = sample.size
+    band = max(2, int(round(min(width, height) * 0.10)))
+    border_pixels = []
+    border_pixels.extend(sample.crop((0, 0, width, band)).getdata())
+    border_pixels.extend(sample.crop((0, height - band, width, height)).getdata())
+    border_pixels.extend(sample.crop((0, band, band, height - band)).getdata())
+    border_pixels.extend(sample.crop((width - band, band, width, height - band)).getdata())
     colors = Counter(
         tuple((channel // 16) * 16 + 8 for channel in pixel[:3])
-        for pixel in sample.convert("RGB").getdata()
+        for pixel in border_pixels
     )
     return colors.most_common(1)[0][0]
 
@@ -257,6 +269,81 @@ def _text_width_units(value):
     )
 
 
+@lru_cache(maxsize=512)
+def _correct_display_text(value):
+    """Conservatively repair isolated OCR headings using common vocabulary."""
+
+    try:
+        from wordfreq import top_n_list, zipf_frequency
+    except ImportError:
+        return value
+
+    vocabulary = top_n_list("en", 50000)
+
+    def edit_distance(left, right):
+        previous = list(range(len(right) + 1))
+        for left_index, left_character in enumerate(left, 1):
+            current = [left_index]
+            for right_index, right_character in enumerate(right, 1):
+                current.append(
+                    min(
+                        current[-1] + 1,
+                        previous[right_index] + 1,
+                        previous[right_index - 1]
+                        + (left_character != right_character),
+                    )
+                )
+            previous = current
+        return previous[-1]
+
+    corrected = []
+    for token in value.split():
+        prefix = re.match(r"^[^A-Za-z]*", token).group(0)
+        suffix = re.search(r"[^A-Za-z]*$", token).group(0)
+        end = len(token) - len(suffix) if suffix else len(token)
+        core = token[len(prefix) : end]
+        lowered = core.lower()
+        if (
+            len(lowered) < 4
+            or not lowered.isalpha()
+            or zipf_frequency(lowered, "en") >= 3.0
+        ):
+            corrected.append(token)
+            continue
+        maximum_distance = max(1, int(round(len(lowered) * 0.45)))
+        candidates = []
+        for candidate in vocabulary:
+            if (
+                not candidate.isalpha()
+                or abs(len(candidate) - len(lowered)) > maximum_distance
+            ):
+                continue
+            distance = edit_distance(lowered, candidate)
+            if distance > maximum_distance:
+                continue
+            similarity = difflib.SequenceMatcher(
+                None, lowered, candidate
+            ).ratio()
+            if similarity < 0.60:
+                continue
+            candidates.append(
+                (
+                    distance,
+                    -zipf_frequency(candidate, "en"),
+                    -similarity,
+                    candidate,
+                )
+            )
+        if not candidates:
+            corrected.append(token)
+            continue
+        replacement = min(candidates)[-1]
+        if core[:1].isupper():
+            replacement = replacement.capitalize()
+        corrected.append(prefix + replacement + suffix)
+    return " ".join(corrected)
+
+
 def _ocr_nodes(
     path,
     image,
@@ -340,6 +427,27 @@ def _ocr_nodes(
                 word for word in words if id(word) in cluster_ids
             ]
     lines = segmented_lines
+    observations = []
+    for source_key, words in lines.items():
+        observation_left = min(word[0] for word in words)
+        observation_top = min(word[1] for word in words)
+        observation_right = max(word[0] + word[2] for word in words)
+        observation_bottom = max(word[1] + word[3] for word in words)
+        observation_value = " ".join(
+            word[5] for word in sorted(words, key=lambda item: item[0])
+        )
+        observations.append(
+            (
+                source_key[0],
+                [
+                    observation_left,
+                    observation_top,
+                    observation_right - observation_left,
+                    observation_bottom - observation_top,
+                ],
+                observation_value,
+            )
+        )
     selected = {}
     for source_key, words in lines.items():
         key = source_key[1:]
@@ -367,6 +475,55 @@ def _ocr_nodes(
         ):
             rows = [words]
         value = "\n".join(" ".join(word[5] for word in row) for row in rows)
+        if key[0] != "cell":
+            normalized_value = re.sub(
+                r"[^a-z0-9\u0600-\u06ff]+", "",
+                value.lower(),
+            )
+            consensus_sources = set()
+            measured_bbox = [
+                left,
+                top,
+                measured_width,
+                measured_height,
+            ]
+            for (
+                observation_source,
+                observation_bbox,
+                observation_value,
+            ) in observations:
+                normalized_observation = re.sub(
+                    r"[^a-z0-9\u0600-\u06ff]+",
+                    "",
+                    observation_value.lower(),
+                )
+                if (
+                    normalized_observation
+                    and normalized_value
+                    and _bbox_overlap_ratio(
+                        measured_bbox, observation_bbox
+                    )
+                    >= 0.45
+                    and difflib.SequenceMatcher(
+                        None,
+                        normalized_value,
+                        normalized_observation,
+                    ).ratio()
+                    >= 0.60
+                ):
+                    consensus_sources.add(observation_source)
+            dense_recovery = (
+                source_index == 2
+                and len(words) >= 3
+                and sum(
+                    character.isalpha()
+                    for word in words
+                    for character in word[5]
+                )
+                >= 6
+            )
+            if len(consensus_sources) < 2 and not dense_recovery:
+                continue
         rtl = bool(ARABIC.search(value))
         crop = image.crop(
             (left, top, left + measured_width, top + measured_height)
@@ -487,6 +644,395 @@ def _expand_boundary_artwork(x, box_width, box_height, vertical, image_width):
     return x, box_width, False
 
 
+def _flat_color_nodes(image, background, text_nodes):
+    """Recover repeated low-contrast panels and slots as native shapes."""
+
+    try:
+        import cv2
+        import numpy
+    except ImportError:
+        return []
+    array = numpy.asarray(image.convert("RGB"))
+    height, width = array.shape[:2]
+    page_area = width * height
+    quantized = (
+        (array.astype("uint16") // 8) * 8 + 4
+    ).clip(0, 255).astype("uint8")
+    colors, counts = numpy.unique(
+        quantized.reshape(-1, 3), axis=0, return_counts=True
+    )
+    text_boxes = [node["bbox"] for node in text_nodes]
+
+    def overlaps_text(bbox):
+        return any(
+            _bbox_overlap_ratio(bbox, text_box) >= 0.45
+            for text_box in text_boxes
+        )
+
+    groups = []
+    for color, count in zip(colors, counts):
+        if count / page_area < 0.001:
+            continue
+        if int(
+            numpy.max(
+                numpy.abs(
+                    color.astype("int16")
+                    - numpy.asarray(background, dtype="int16")
+                )
+            )
+        ) < 10:
+            continue
+        mask = (
+            numpy.max(
+                numpy.abs(array.astype("int16") - color.astype("int16")),
+                axis=2,
+            )
+            <= 12
+        ).astype("uint8") * 255
+        mask = cv2.morphologyEx(
+            mask,
+            cv2.MORPH_OPEN,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
+        )
+        count_components, _, stats, _ = cv2.connectedComponentsWithStats(
+            mask, 8
+        )
+        candidates = []
+        for x, y, box_width, box_height, area in stats[1:count_components]:
+            box_area = box_width * box_height
+            if (
+                box_width < 18
+                or box_height < 10
+                or box_area / page_area > 0.12
+                or area / page_area < 0.00045
+                or area / max(1, box_area) < 0.62
+            ):
+                continue
+            bbox = [
+                x / width,
+                y / height,
+                box_width / width,
+                box_height / height,
+            ]
+            component_mask = mask[
+                y : y + box_height, x : x + box_width
+            ]
+            corner_width = max(2, int(round(box_width * 0.12)))
+            corner_height = max(2, int(round(box_height * 0.20)))
+            corner_samples = numpy.concatenate(
+                (
+                    component_mask[:corner_height, :corner_width].reshape(-1),
+                    component_mask[:corner_height, -corner_width:].reshape(-1),
+                    component_mask[-corner_height:, :corner_width].reshape(-1),
+                    component_mask[-corner_height:, -corner_width:].reshape(-1),
+                )
+            )
+            candidates.append(
+                (
+                    bbox,
+                    float((corner_samples > 0).mean()),
+                    overlaps_text(bbox),
+                )
+            )
+        if len(candidates) >= 2 or any(item[2] for item in candidates):
+            groups.append((color, candidates))
+
+    entries = [
+        (color, bbox, corner_density, overlap)
+        for color, candidates in groups
+        for bbox, corner_density, overlap in candidates
+    ]
+
+    def similar_family_size(left, right):
+        _, left_bbox, _, _ = left
+        _, right_bbox, _, _ = right
+        left_color, right_color = left[0], right[0]
+        if int(
+            numpy.max(
+                numpy.abs(
+                    left_color.astype("int16")
+                    - right_color.astype("int16")
+                )
+            )
+        ) > 16:
+            return False
+        for left_value, right_value in (
+            (left_bbox[2], right_bbox[2]),
+            (left_bbox[3], right_bbox[3]),
+        ):
+            if max(left_value, right_value) / max(
+                min(left_value, right_value), 1e-9
+            ) > 1.20:
+                return False
+        return True
+
+    family_supports = {
+        id(entry): sum(
+            similar_family_size(entry, other) for other in entries
+        )
+        for entry in entries
+    }
+    strongest_non_dark_family = max(
+        (
+            family_supports[id(entry)]
+            for entry in entries
+            if float(numpy.mean(entry[0])) > 90
+        ),
+        default=0,
+    )
+    repeated_family_floor = max(
+        3,
+        int(numpy.ceil(strongest_non_dark_family * 0.30)),
+    )
+    retained = []
+    for entry in entries:
+        color, bbox, _, _ = entry
+        family_support = family_supports[id(entry)]
+        pixel_aspect = (bbox[2] * width) / max(bbox[3] * height, 1)
+        dark_display_panel = (
+            float(numpy.mean(color)) <= 90
+            and pixel_aspect >= 2
+            and bbox[2] * bbox[3] >= 0.004
+        )
+        repeated_semantic_shape = (
+            bbox[2] * bbox[3] >= 0.0015
+            and bbox[3] > 0.025
+            and family_support >= repeated_family_floor
+        )
+        if repeated_semantic_shape or dark_display_panel:
+            retained.append(entry)
+
+    nodes = []
+    for color, bbox, corner_density, _ in retained:
+        rounded = (
+            bbox[2] >= bbox[3] * 1.5
+            and corner_density < 0.92
+        )
+        nodes.append(
+            {
+                "id": "flat-%03d" % (len(nodes) + 1),
+                "type": "rounded_rectangle" if rounded else "rectangle",
+                "bbox": bbox,
+                "z": 10,
+                "editable": True,
+                "style": {
+                    "fill": _hex(tuple(int(value) for value in color)),
+                    "stroke": None,
+                    "stroke_width": 0,
+                    "corner_radius": 0.45 if rounded else 0,
+                    "opacity": 1,
+                },
+            }
+        )
+    return nodes
+
+
+def _panel_ocr_nodes(
+    image,
+    panel_nodes,
+    page_width_mm,
+    page_height_mm,
+):
+    """Recover display text from isolated dark panels at panel resolution."""
+
+    width, height = image.size
+    nodes = []
+    for panel in panel_nodes:
+        if panel["type"] not in {"rectangle", "rounded_rectangle"}:
+            continue
+        fill = panel.get("style", {}).get("fill")
+        if not fill:
+            continue
+        channels = tuple(
+            int(fill.lstrip("#")[index : index + 2], 16)
+            for index in (0, 2, 4)
+        )
+        x, y, box_width, box_height = panel["bbox"]
+        pixel_aspect = (box_width * width) / max(
+            box_height * height, 1
+        )
+        if (
+            sum(channels) / 3 > 90
+            or pixel_aspect < 2
+        ):
+            continue
+        crop = image.crop(
+            (
+                max(0, int(round(x * width))),
+                max(0, int(round(y * height))),
+                min(width, int(round((x + box_width) * width))),
+                min(height, int(round((y + box_height) * height))),
+            )
+        )
+        if crop.width < 10 or crop.height < 10:
+            continue
+        wide_title_panel = (
+            pixel_aspect >= 3
+            and box_width * box_height >= 0.02
+        )
+        minimum_confidence = 10 if wide_title_panel else 20
+        processed = ImageOps.autocontrast(crop.convert("L")).resize(
+            (crop.width * 3, crop.height * 3)
+        )
+        candidates = []
+        with tempfile.TemporaryDirectory(
+            prefix="reconstructor-panel-ocr-"
+        ) as directory:
+            path = Path(directory) / "panel.png"
+            processed.save(path)
+            for psm in (13, 7):
+                words = []
+                for row in csv.DictReader(
+                    io.StringIO(_ocr_tsv(path, psm)),
+                    delimiter="\t",
+                ):
+                    value = (row.get("text") or "").strip()
+                    try:
+                        confidence = float(row.get("conf", "-1"))
+                        left = int(row.get("left", "0"))
+                    except (TypeError, ValueError):
+                        continue
+                    value = re.sub(
+                        r"^[^\w\u0600-\u06ff]+|[^\w\u0600-\u06ff]+$",
+                        "",
+                        value,
+                    )
+                    if (
+                        confidence >= minimum_confidence
+                        and value
+                        and any(character.isalpha() for character in value)
+                    ):
+                        words.append((left, confidence, value))
+                if words:
+                    value = " ".join(
+                        word[2] for word in sorted(words, key=lambda item: item[0])
+                    )
+                    average_confidence = (
+                        sum(word[1] for word in words) / len(words)
+                    )
+                    candidates.append(
+                        (
+                            average_confidence,
+                            len(value),
+                            value,
+                        )
+                    )
+                    if (
+                        average_confidence >= 80
+                        and not wide_title_panel
+                    ):
+                        break
+        if not candidates:
+            continue
+        _, _, value = max(
+            candidates,
+            key=lambda item: item[0] + min(30, item[1] * 1.5),
+        )
+        value = _correct_display_text(value)
+        inset_x = box_width * 0.04
+        inset_y = box_height * 0.10
+        text_width = box_width - 2 * inset_x
+        text_height = box_height - 2 * inset_y
+        box_height_points = (
+            text_height * page_height_mm * POINTS_PER_MM
+        )
+        box_width_points = text_width * page_width_mm * POINTS_PER_MM
+        measured_font_size = box_height_points * 0.70
+        fitted_font_size = min(
+            measured_font_size,
+            box_width_points * 0.86 / _text_width_units(value),
+        )
+        nodes.append(
+            {
+                "id": "panel-text-%03d" % (len(nodes) + 1),
+                "type": "text",
+                "bbox": [
+                    x + inset_x,
+                    y + inset_y,
+                    text_width,
+                    text_height,
+                ],
+                "z": 30,
+                "editable": True,
+                "text": {
+                    "value": value,
+                    "direction": "ltr",
+                    "font_family": "URW Chancery L",
+                    "font_size_pt": max(6, min(72, fitted_font_size)),
+                    "weight": 400,
+                    "align": "center",
+                    "color": "#ffffff",
+                },
+            }
+        )
+    return nodes
+
+
+def _merge_panel_text(page_text, panel_text):
+    merged = list(page_text)
+    for recovered in panel_text:
+        overlaps = [
+            existing
+            for existing in merged
+            if _bbox_overlap_ratio(
+                existing["bbox"], recovered["bbox"]
+            )
+            >= 0.25
+        ]
+        recovered_value = _correct_display_text(
+            recovered["text"]["value"]
+        )
+        fragments = []
+        for existing in overlaps:
+            existing_value = _correct_display_text(
+                existing["text"]["value"]
+            )
+            normalized_existing = re.sub(
+                r"[^a-z0-9\u0600-\u06ff]+",
+                "",
+                existing_value.lower(),
+            )
+            normalized_recovered = re.sub(
+                r"[^a-z0-9\u0600-\u06ff]+",
+                "",
+                recovered_value.lower(),
+            )
+            if (
+                normalized_existing
+                and normalized_recovered
+                and difflib.SequenceMatcher(
+                    None,
+                    normalized_existing,
+                    normalized_recovered,
+                ).ratio()
+                >= 0.72
+            ):
+                continue
+            fragments.append((existing["bbox"][0], existing_value))
+        fragments.append((recovered["bbox"][0], recovered_value))
+        combined_value = " ".join(
+            value for _, value in sorted(fragments)
+        )
+        if sum(character.isalpha() for character in combined_value) > (
+            sum(character.isalpha() for character in recovered_value) + 2
+        ):
+            recovered["text"]["value"] = combined_value
+        else:
+            recovered["text"]["value"] = recovered_value
+        merged = [
+            existing
+            for existing in merged
+            if _bbox_overlap_ratio(
+                existing["bbox"], recovered["bbox"]
+            )
+            < 0.55
+        ]
+        merged.append(recovered)
+    for index, node in enumerate(merged, 1):
+        node["id"] = "text-%03d" % index
+    return merged
+
+
 def _graphic_nodes(path, image, background, text_nodes, vertical=None, horizontal=None):
     """Preserve bounded non-text artwork as editable image objects."""
 
@@ -497,9 +1043,12 @@ def _graphic_nodes(path, image, background, text_nodes, vertical=None, horizonta
         return []
     array = numpy.asarray(image.convert("RGB"))
     delta = numpy.max(numpy.abs(array.astype("int16") - numpy.array(background)), axis=2)
-    mask = (delta >= 38).astype("uint8") * 255
+    mask = (delta >= 12).astype("uint8") * 255
     mask = cv2.morphologyEx(
-        mask, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
+        mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    )
+    mask = cv2.morphologyEx(
+        mask, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
     )
     grid_top = horizontal[0] if horizontal else 0
     grid_bottom = horizontal[-1] if horizontal else mask.shape[0] - 1
@@ -628,43 +1177,19 @@ def _graphic_nodes(path, image, background, text_nodes, vertical=None, horizonta
                 numpy.abs(dominant - numpy.asarray(background, dtype="int16"))
             )
         )
-        is_flat_band = (
-            box_width / max(1, box_height) >= 3
-            and dominant_ratio >= 0.55
+        is_flat_shape = (
+            dominant_ratio >= 0.55
             and component_density >= 0.55
-            and background_delta >= 24
+            and background_delta >= 10
         )
-        if not is_flat_band:
+        if not is_flat_shape:
             append_image(x, y, box_width, box_height)
             continue
 
-        nodes.append(
-            {
-                "id": "panel-%03d" % (
-                    1 + sum(node["type"] == "rectangle" for node in nodes)
-                ),
-                "type": "rectangle",
-                "bbox": [
-                    x / width,
-                    y / height,
-                    box_width / width,
-                    box_height / height,
-                ],
-                "z": 10,
-                "editable": True,
-                "style": {
-                    "fill": _hex(tuple(int(value) for value in dominant)),
-                    "stroke": None,
-                    "stroke_width": 0,
-                    "corner_radius": 0,
-                    "opacity": 1,
-                },
-            }
-        )
-
-        # Remove the flat panel color and long structural rules. Remaining
-        # visual islands (portraits/icons) are independently retained, while
-        # recovered text is excluded by the native-text overlap check.
+        # Flat panels are recovered by _flat_color_nodes, where repetition
+        # proves semantic geometry. Here we only retain residual artwork
+        # inside a panel; otherwise decorative bars and floral strokes can be
+        # misclassified as document controls.
         residual = (
             numpy.max(
                 numpy.abs(component.astype("int16") - dominant), axis=2
@@ -703,6 +1228,99 @@ def _graphic_nodes(path, image, background, text_nodes, vertical=None, horizonta
                 residual_height,
             )
     return nodes[:80]
+
+
+def _bbox_iou(left, right):
+    overlap_width = max(
+        0,
+        min(left[0] + left[2], right[0] + right[2])
+        - max(left[0], right[0]),
+    )
+    overlap_height = max(
+        0,
+        min(left[1] + left[3], right[1] + right[3])
+        - max(left[1], right[1]),
+    )
+    overlap = overlap_width * overlap_height
+    union = left[2] * left[3] + right[2] * right[3] - overlap
+    return overlap / union if union else 0.0
+
+
+def _bbox_overlap_ratio(left, right):
+    overlap_width = max(
+        0,
+        min(left[0] + left[2], right[0] + right[2])
+        - max(left[0], right[0]),
+    )
+    overlap_height = max(
+        0,
+        min(left[1] + left[3], right[1] + right[3])
+        - max(left[1], right[1]),
+    )
+    smaller = min(left[2] * left[3], right[2] * right[3])
+    return overlap_width * overlap_height / smaller if smaller else 0.0
+
+
+def _deduplicate_visual_nodes(nodes):
+    deduplicated = []
+    for node in nodes:
+        duplicate = next(
+            (
+                existing
+                for existing in deduplicated
+                if existing["type"] in {"rectangle", "rounded_rectangle"}
+                and node["type"] in {"rectangle", "rounded_rectangle"}
+                and _bbox_overlap_ratio(existing["bbox"], node["bbox"]) >= 0.80
+            ),
+            None,
+        )
+        if duplicate is None:
+            deduplicated.append(node)
+    for index, node in enumerate(deduplicated, 1):
+        if node["type"] == "image":
+            node["id"] = "art-%03d" % index
+        elif node["type"] in {"rectangle", "rounded_rectangle"}:
+            node["id"] = "shape-%03d" % index
+    return deduplicated
+
+
+def _needs_decorative_texture(image, background, redactions):
+    try:
+        import cv2
+        import numpy
+    except ImportError:
+        return False
+    array = numpy.asarray(image.convert("RGB"))
+    delta = numpy.sum(
+        numpy.abs(array.astype("int16") - numpy.asarray(background, dtype="int16")),
+        axis=2,
+    )
+    residual = (delta >= 42).astype("uint8")
+    height, width = residual.shape
+    for x, y, box_width, box_height in redactions:
+        left = max(0, int(round((x - 0.006) * width)))
+        top = max(0, int(round((y - 0.006) * height)))
+        right = min(width, int(round((x + box_width + 0.006) * width)))
+        bottom = min(height, int(round((y + box_height + 0.006) * height)))
+        residual[top:bottom, left:right] = 0
+    residual = cv2.morphologyEx(
+        residual,
+        cv2.MORPH_OPEN,
+        cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2)),
+    )
+    border = max(2, int(round(min(width, height) * 0.03)))
+    boundary_pixels = numpy.concatenate(
+        (
+            residual[:border].reshape(-1),
+            residual[-border:].reshape(-1),
+            residual[:, :border].reshape(-1),
+            residual[:, -border:].reshape(-1),
+        )
+    )
+    return (
+        float(residual.mean()) >= 0.0025
+        and float(boundary_pixels.mean()) >= 0.005
+    )
 
 
 def _text_panel_nodes(image, background, text_nodes):
@@ -851,7 +1469,28 @@ def extract_scene_graph(reference_path, hints=None):
         page_height_mm=page_height,
     )
     nodes = []
-    nodes.extend(_text_panel_nodes(image, background, text_nodes))
+    flat_nodes = _deduplicate_visual_nodes(
+        _flat_color_nodes(image, background, text_nodes)
+    )
+    panel_text_nodes = _panel_ocr_nodes(
+        image,
+        flat_nodes,
+        page_width_mm=page_width,
+        page_height_mm=page_height,
+    )
+    text_nodes = _merge_panel_text(text_nodes, panel_text_nodes)
+    visual_nodes = _deduplicate_visual_nodes(
+        flat_nodes
+        + _text_panel_nodes(image, background, text_nodes)
+        + _graphic_nodes(
+            reference_path,
+            image,
+            background,
+            text_nodes,
+            vertical,
+            horizontal,
+        )
+    )
     if len(vertical) >= 3 and len(horizontal) >= 3:
         x0, x1 = vertical[0], vertical[-1]
         y0, y1 = horizontal[0], horizontal[-1]
@@ -907,19 +1546,47 @@ def extract_scene_graph(reference_path, hints=None):
                     },
                 }
             )
-    nodes.extend(
-        _graphic_nodes(
-            reference_path,
-            image,
-            background,
-            text_nodes,
-            vertical,
-            horizontal,
-        )
-    )
+    nodes.extend(visual_nodes)
     nodes.extend(text_nodes)
-    if not nodes:
-        nodes.append(
+    redactions = [
+        list(node["bbox"])
+        for node in nodes
+        if node["type"]
+        in {
+            "text",
+            "rectangle",
+            "rounded_rectangle",
+            "ellipse",
+            "line",
+            "polygon",
+            "grid",
+        }
+    ]
+    if _needs_decorative_texture(image, background, redactions):
+        nodes = [
+            {
+                "id": "cleaned-page-texture",
+                "type": "image",
+                "bbox": [0, 0, 1, 1],
+                "crop": [0, 0, 1, 1],
+                "content_ref": "cleaned-reference-background",
+                "redactions": redactions,
+                "background_fill": _hex(background),
+                "raster_justification": "source_texture",
+                "z": 0,
+                "editable": True,
+                "style": {
+                    "fill": None,
+                    "stroke": None,
+                    "stroke_width": 0,
+                    "corner_radius": 0,
+                    "opacity": 1,
+                },
+            }
+        ] + [node for node in nodes if node["type"] != "image"]
+    else:
+        nodes.insert(
+            0,
             {
                 "id": "page-background",
                 "type": "rectangle",
@@ -933,7 +1600,7 @@ def extract_scene_graph(reference_path, hints=None):
                     "corner_radius": 0,
                     "opacity": 1,
                 },
-            }
+            },
         )
     return {
         "version": "scene-graph.v1",

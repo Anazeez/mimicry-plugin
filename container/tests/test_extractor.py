@@ -6,7 +6,9 @@ from unittest.mock import patch
 from PIL import Image, ImageDraw
 
 from container.app.extractor import (
+    _correct_display_text,
     _expand_boundary_artwork,
+    _merge_panel_text,
     _text_width_units,
     extract_scene_graph,
 )
@@ -14,6 +16,191 @@ from container.app.schemas import validate_scene_graph
 
 
 class DeterministicExtractorTests(unittest.TestCase):
+    def test_corrects_low_confidence_display_ocr_with_common_words(self):
+        self.assertEqual(_correct_display_text("CMenday"), "Monday")
+        self.assertEqual(_correct_display_text("Wethesday"), "Wednesday")
+        self.assertEqual(_correct_display_text("Vhusday"), "Thursday")
+        self.assertEqual(_correct_display_text("Triday"), "Friday")
+        self.assertEqual(_correct_display_text("Echedule"), "Schedule")
+        self.assertEqual(_correct_display_text("Vledkly"), "Weekly")
+
+    def test_rejects_single_pass_ocr_from_monochrome_decoration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / "reference.png"
+            image = Image.new("RGB", (600, 300), "#e8e8d8")
+            draw = ImageDraw.Draw(image)
+            draw.line((430, 0, 590, 120), fill="#77776b", width=7)
+            image.save(reference)
+            header = (
+                "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\t"
+                "left\ttop\twidth\theight\tconf\ttext\n"
+            )
+            false_word = (
+                header
+                + "5\t1\t1\t1\t1\t1\t470\t20\t70\t35\t91\tJAN\n"
+            )
+
+            def one_pass_only(path, psm=11):
+                return false_word if psm == 11 else header
+
+            with patch(
+                "container.app.extractor._ocr_tsv",
+                side_effect=one_pass_only,
+            ):
+                scene = validate_scene_graph(extract_scene_graph(reference))
+
+        self.assertFalse(
+            [node for node in scene["nodes"] if node["type"] == "text"],
+            scene,
+        )
+
+    def test_merges_complementary_title_fragments_without_duplication(self):
+        def text_node(value, bbox):
+            return {
+                "id": value,
+                "type": "text",
+                "bbox": bbox,
+                "z": 30,
+                "editable": True,
+                "text": {
+                    "value": value,
+                    "direction": "ltr",
+                    "font_family": "Arial",
+                    "font_size_pt": 20,
+                    "weight": 400,
+                    "align": "left",
+                    "color": "#ffffff",
+                },
+            }
+
+        page = [
+            text_node("Weelly", [0.28, 0.05, 0.20, 0.10]),
+            text_node("Schedule", [0.47, 0.05, 0.22, 0.10]),
+        ]
+        panel = [
+            text_node("Schedule", [0.30, 0.05, 0.40, 0.10]),
+        ]
+        merged = _merge_panel_text(page, panel)
+
+        self.assertEqual(len(merged), 1, merged)
+        self.assertEqual(
+            merged[0]["text"]["value"],
+            "Weekly Schedule",
+        )
+
+    def test_repeated_light_slots_do_not_become_the_page_background(self):
+        """Catches losing low-contrast schedule geometry and decoration."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / "reference.png"
+            image = Image.new("RGB", (900, 600), "#e8e8d8")
+            draw = ImageDraw.Draw(image)
+            draw.line((0, 20, 250, 240), fill="#77776b", width=5)
+            draw.line((650, 0, 899, 260), fill="#8a8a7d", width=5)
+            for column in range(3):
+                left = 55 + column * 280
+                draw.rectangle((left, 90, left + 220, 140), fill="#282828")
+                for row in range(4):
+                    top = 180 + row * 92
+                    draw.rounded_rectangle(
+                        (left, top, left + 220, top + 64),
+                        radius=18,
+                        fill="#f8f8f8",
+                    )
+            for index, motif_width in enumerate((30, 50, 80, 120)):
+                left = 40 + index * 180
+                draw.rectangle(
+                    (left, 575, left + motif_width, 589),
+                    fill="#8c847c",
+                )
+            image.save(reference)
+
+            tsv = (
+                "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\t"
+                "left\ttop\twidth\theight\tconf\ttext\n"
+                "5\t1\t1\t1\t1\t1\t100\t103\t120\t24\t95\tMonday\n"
+                "5\t1\t2\t1\t1\t1\t380\t103\t120\t24\t95\tTuesday\n"
+                "5\t1\t3\t1\t1\t1\t660\t103\t150\t24\t95\tWednesday\n"
+            )
+            with patch("container.app.extractor._ocr_tsv", return_value=tsv):
+                scene = validate_scene_graph(extract_scene_graph(reference))
+
+        slots = [
+            node
+            for node in scene["nodes"]
+            if node["type"] == "rounded_rectangle"
+            and node["bbox"][1] >= 0.25
+        ]
+        panels = [
+            node
+            for node in scene["nodes"]
+            if node["type"] == "rectangle"
+            and node["bbox"][1] < 0.25
+            and node["bbox"][2] < 0.40
+        ]
+        texture = [
+            node
+            for node in scene["nodes"]
+            if node["type"] == "image"
+            and node.get("content_ref") == "cleaned-reference-background"
+        ]
+        self.assertEqual(len(slots), 12, scene)
+        self.assertEqual(len(panels), 3, scene)
+        self.assertEqual(
+            len(
+                [
+                    node
+                    for node in scene["nodes"]
+                    if node["type"] in {"rectangle", "rounded_rectangle"}
+                    and node["z"] == 10
+                ]
+            ),
+            15,
+            scene,
+        )
+        self.assertEqual(len(texture), 1, scene)
+        self.assertGreaterEqual(len(texture[0].get("redactions", [])), 18)
+
+    def test_dark_header_panels_recover_native_script_text_independently(self):
+        """Catches sparse page OCR losing cursive schedule headings."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / "reference.png"
+            image = Image.new("RGB", (600, 300), "#e8e8d8")
+            draw = ImageDraw.Draw(image)
+            draw.rectangle((50, 80, 250, 135), fill="#282828")
+            draw.rectangle((330, 80, 530, 135), fill="#282828")
+            image.save(reference)
+            header = (
+                "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\t"
+                "left\ttop\twidth\theight\tconf\ttext\n"
+            )
+            panel_result = (
+                header
+                + "5\t1\t1\t1\t1\t1\t24\t12\t150\t30\t91\tWednesday\n"
+            )
+
+            def tsv_for_path(path, psm=11):
+                return header if Path(path) == reference else panel_result
+
+            with patch(
+                "container.app.extractor._ocr_tsv",
+                side_effect=tsv_for_path,
+            ):
+                scene = validate_scene_graph(extract_scene_graph(reference))
+
+        headings = [
+            node
+            for node in scene["nodes"]
+            if node["type"] == "text"
+            and node["text"]["value"] == "Wednesday"
+        ]
+        self.assertEqual(len(headings), 2, scene)
+        self.assertTrue(
+            all(node["text"]["font_family"] != "Arial" for node in headings),
+            headings,
+        )
+
     def test_extracts_page_grid_and_native_text_without_a_full_page_image(self):
         with tempfile.TemporaryDirectory() as directory:
             reference = Path(directory) / "reference.png"

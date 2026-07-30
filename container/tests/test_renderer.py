@@ -11,6 +11,7 @@ import zipfile
 from PIL import Image, ImageDraw
 
 from container.app.extractor import _text_width_units
+from container.app.ooxml_audit import _ocr_image_text
 from container.app.schemas import validate_scene_graph
 from container.app.renderer import (
     _anchor_to_first_page,
@@ -27,6 +28,29 @@ FAILED_DOCX = ROOT / "container/tests/fixtures/failed.docx"
 
 
 class NativeRendererTests(unittest.TestCase):
+    def test_raster_ocr_requires_cross_segmentation_consensus(self):
+        header = (
+            "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\t"
+            "left\ttop\twidth\theight\tconf\ttext\n"
+        )
+        false_positive = header + (
+            "5\t1\t1\t1\t1\t1\t10\t10\t40\t20\t90\tVNC\n"
+        )
+        responses = [
+            Mock(returncode=0, stdout=false_positive),
+            Mock(returncode=0, stdout=header),
+        ]
+        with patch(
+            "container.app.ooxml_audit.shutil.which",
+            return_value="/usr/bin/tesseract",
+        ), patch(
+            "container.app.ooxml_audit.subprocess.run",
+            side_effect=responses,
+        ):
+            detected = _ocr_image_text(Image.new("RGB", (200, 100), "white"))
+
+        self.assertEqual(detected, "")
+
     def test_office_uses_an_isolated_local_pipe(self):
         accept, connection_url = _office_endpoint()
         self.assertTrue(accept.startswith("pipe,name=mimicry_"))
@@ -227,6 +251,63 @@ class NativeRendererTests(unittest.TestCase):
         self.assertTrue(audit["source_reference_embedded"], audit)
         self.assertGreaterEqual(audit["largest_unjustified_raster_ratio"], 0.95)
         self.assertGreaterEqual(audit["total_unjustified_raster_ratio"], 0.95)
+
+    def test_cleaned_background_removes_semantic_regions_but_keeps_decoration(self):
+        """Catches embedding text-bearing source pixels as the page texture."""
+
+        scene = validate_scene_graph(
+            {
+                "version": "scene-graph.v1",
+                "page": {
+                    "width": 297,
+                    "height": 210,
+                    "orientation": "landscape",
+                },
+                "nodes": [
+                    {
+                        "id": "clean-background",
+                        "type": "image",
+                        "bbox": [0.0, 0.0, 1.0, 1.0],
+                        "crop": [0.0, 0.0, 1.0, 1.0],
+                        "content_ref": "cleaned-reference-background",
+                        "redactions": [[0.30, 0.30, 0.40, 0.25]],
+                        "background_fill": "#e8e8d8",
+                        "raster_justification": "source_texture",
+                        "z": 0,
+                        "editable": True,
+                        "style": {
+                            "fill": None,
+                            "stroke": None,
+                            "stroke_width": 0,
+                            "corner_radius": 0,
+                            "opacity": 1,
+                        },
+                    }
+                ],
+                "constraints": [],
+            }
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            reference = workspace / "reference.png"
+            image = Image.new("RGB", (500, 350), "#e8e8d8")
+            draw = ImageDraw.Draw(image)
+            draw.line((10, 10, 120, 120), fill="#66665c", width=5)
+            draw.rectangle((150, 105, 350, 192), fill="#222222")
+            image.save(reference)
+            artifact = render_scene(scene, reference, workspace)
+            with zipfile.ZipFile(artifact.docx_path) as archive:
+                media_name = next(
+                    name
+                    for name in archive.namelist()
+                    if name.startswith("word/media/")
+                )
+                media = Image.open(io.BytesIO(archive.read(media_name))).convert("RGB")
+
+        center = media.getpixel((media.width // 2, media.height // 2))
+        decoration = media.getpixel((40, 40))
+        self.assertLess(max(abs(left - right) for left, right in zip(center, (232, 232, 216))), 8)
+        self.assertLess(max(decoration), 180)
 
     def test_raster_tiles_cannot_evade_full_page_detection(self):
         nodes = []

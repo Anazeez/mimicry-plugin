@@ -8,6 +8,7 @@ alone.
 from io import BytesIO
 from pathlib import Path
 import csv
+import difflib
 import io
 import re
 import shutil
@@ -108,59 +109,60 @@ def _ocr_image_text(image):
 
     if not shutil.which("tesseract"):
         return None
+    passes = []
     with tempfile.TemporaryDirectory(prefix="reconstructor-media-ocr-") as directory:
         path = Path(directory) / "media.png"
         image.convert("RGB").save(path)
-        result = subprocess.run(
-            [
-                "tesseract",
-                str(path),
-                "stdout",
-                "-l",
-                "ara+eng",
-                "--psm",
-                "6",
-                "tsv",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    if result.returncode != 0:
+        for psm in (6, 11):
+            result = subprocess.run(
+                [
+                    "tesseract",
+                    str(path),
+                    "stdout",
+                    "-l",
+                    "ara+eng",
+                    "--psm",
+                    str(psm),
+                    "tsv",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                return None
+            words = []
+            for row in csv.DictReader(
+                io.StringIO(result.stdout), delimiter="\t"
+            ):
+                value = (row.get("text") or "").strip()
+                try:
+                    confidence = float(row.get("conf", "-1"))
+                except (TypeError, ValueError):
+                    continue
+                if (
+                    confidence >= 60
+                    and value
+                    and any(character.isalnum() for character in value)
+                ):
+                    words.append(_normalized_text(value))
+            passes.append(
+                [
+                    word
+                    for word in words
+                    if sum(character.isalnum() for character in word) >= 3
+                ]
+            )
+    if len(passes) != 2:
         return None
-    words = []
-    for row in csv.DictReader(io.StringIO(result.stdout), delimiter="\t"):
-        value = (row.get("text") or "").strip()
-        try:
-            confidence = float(row.get("conf", "-1"))
-        except (TypeError, ValueError):
-            continue
-        if (
-            confidence >= 60
-            and value
-            and any(character.isalnum() for character in value)
+    consensus = []
+    for word in passes[0]:
+        if any(
+            difflib.SequenceMatcher(None, word, candidate).ratio() >= 0.82
+            for candidate in passes[1]
         ):
-            words.append(value)
-    normalized_words = [
-        _normalized_text(word)
-        for word in words
-        if _normalized_text(word)
-    ]
-    substantial = [
-        word
-        for word in normalized_words
-        if sum(character.isalnum() for character in word) >= 3
-    ]
-    if not substantial:
-        total_characters = sum(
-            character.isalnum()
-            for word in normalized_words
-            for character in word
-        )
-        if len(normalized_words) < 2 or total_characters < 4:
-            return ""
-        substantial = normalized_words
-    return _normalized_text(" ".join(substantial))
+            consensus.append(word)
+    return _normalized_text(" ".join(consensus))
 
 
 def _native_text_values(archive, names):
