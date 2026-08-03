@@ -101,7 +101,7 @@ export function createOAuthDefaultHandler({
           return await beginConsent(request, env);
         }
         if (url.pathname === "/authorize" && request.method === "POST") {
-          return await acceptConsent(request, env);
+          return await acceptConsent(request, env, fetchImpl);
         }
         if (url.pathname === "/callback" && request.method === "GET") {
           return await finishGitHubIdentity(request, env, fetchImpl);
@@ -166,7 +166,7 @@ async function beginConsent(request, env) {
   );
 }
 
-async function acceptConsent(request, env) {
+async function acceptConsent(request, env, fetchImpl) {
   requireOAuthBindings(env);
   const requestId = new URL(request.url).searchParams.get("request");
   const stored = await readState(env, requestId, "consent");
@@ -179,8 +179,17 @@ async function acceptConsent(request, env) {
   ) {
     throw statusError("csrf_validation_failed", 403);
   }
-  const githubState = randomToken();
+  const githubCredential = githubBearerCredential(request);
   await env.OAUTH_KV.delete(stateKey(requestId));
+  if (githubCredential) {
+    const githubUser = await fetchGitHubUser(
+      githubCredential,
+      fetchImpl,
+      "artifact-mimicry",
+    );
+    return await completeGitHubAuthorization(stored, githubUser, env);
+  }
+  const githubState = randomToken();
   await env.OAUTH_KV.put(
     stateKey(githubState),
     JSON.stringify({
@@ -230,11 +239,20 @@ async function finishGitHubIdentity(request, env, fetchImpl) {
       502,
     );
   }
+  const githubUser = await fetchGitHubUser(
+    tokenBody.access_token,
+    fetchImpl,
+    "artifact-mimicry",
+  );
+  return await completeGitHubAuthorization(stored, githubUser, env);
+}
+
+async function fetchGitHubUser(accessToken, fetchImpl, userAgent) {
   const userResponse = await fetchImpl(GITHUB_USER_URL, {
     headers: {
       Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${tokenBody.access_token}`,
-      "User-Agent": "artifact-mimicry",
+      Authorization: `Bearer ${accessToken}`,
+      "User-Agent": userAgent,
       "X-GitHub-Api-Version": "2022-11-28",
     },
   });
@@ -245,6 +263,10 @@ async function finishGitHubIdentity(request, env, fetchImpl) {
       502,
     );
   }
+  return githubUser;
+}
+
+async function completeGitHubAuthorization(stored, githubUser, env) {
   const grant = buildGrantClaims({
     githubUser,
     ownerIds: normalizeNumericIds(env.OWNER_GITHUB_IDS),
@@ -256,6 +278,14 @@ async function finishGitHubIdentity(request, env, fetchImpl) {
     ...grant,
   });
   return Response.redirect(redirectTo, 302);
+}
+
+function githubBearerCredential(request) {
+  const header = request.headers.get("Authorization") || "";
+  if (!header) return "";
+  const match = header.match(/^Bearer ([^\s]+)$/);
+  if (!match) throw statusError("github_bearer_invalid", 401);
+  return match[1];
 }
 
 function requireOAuthBindings(env) {
