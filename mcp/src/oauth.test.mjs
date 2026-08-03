@@ -152,6 +152,61 @@ test("GitHub access token never enters the completed assistant grant", async () 
   assert.doesNotMatch(JSON.stringify(completedGrant), /github-secret-token/);
 });
 
+test("owner GitHub bearer credential completes a one-time CLI authorization", async () => {
+  const kv = memoryKv();
+  let completedGrant;
+  const env = oauthEnvironment(kv, {
+    redirectUri: "http://127.0.0.1:38195/callback/codex",
+  }, grant => {
+    completedGrant = grant;
+    return {
+      redirectTo:
+        "http://127.0.0.1:38195/callback/codex?code=issued&state=client-state",
+    };
+  });
+  const handler = createOAuthDefaultHandler({
+    publicApi: { fetch: () => new Response("public") },
+    fetchImpl: async (url, init) => {
+      assert.equal(url, "https://api.github.com/user");
+      assert.equal(init.headers.Authorization, "Bearer github-cli-token");
+      return Response.json({ id: 42, login: "owner" });
+    },
+  });
+  const consent = await handler.fetch(
+    new Request("https://mimicry.example/authorize?client_id=client"),
+    env,
+  );
+  const cookie = consent.headers.get("set-cookie").split(";")[0];
+  const html = await consent.text();
+  const requestId = html.match(/request=([^"]+)/)[1];
+  const csrf = html.match(/name="csrf" value="([^"]+)"/)[1];
+  const request = () => new Request(
+    `https://mimicry.example/authorize?request=${requestId}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer github-cli-token",
+        "Content-Type": "application/x-www-form-urlencoded",
+        Cookie: cookie,
+      },
+      body: `csrf=${encodeURIComponent(csrf)}`,
+    },
+  );
+
+  const completed = await handler.fetch(request(), env);
+  assert.equal(completed.status, 302);
+  assert.equal(
+    completed.headers.get("location"),
+    "http://127.0.0.1:38195/callback/codex?code=issued&state=client-state",
+  );
+  assert.equal(completedGrant.props.principal_id, "github:42");
+  assert.doesNotMatch(JSON.stringify(completedGrant), /github-cli-token/);
+
+  const replay = await handler.fetch(request(), env);
+  assert.equal(replay.status, 400);
+  assert.equal((await replay.json()).detail, "oauth_state_invalid_or_expired");
+});
+
 test("OAuth errors redact credential-shaped values", () => {
   const redacted = redactOAuthError(
     "failed access_token=token-value refresh_token=refresh-value code=code-value client_secret=secret-value",
